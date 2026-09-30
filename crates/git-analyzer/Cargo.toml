@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 gix = "0.73"
 serde = { version = "1", features = ["derive"] }
+anyhow = "1"
 city-model = { path = "../city-model" }
