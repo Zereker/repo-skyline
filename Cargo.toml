@@ -2,6 +2,7 @@
 members = [
   "crates/repository-model",
   "crates/git-analyzer",
-  "crates/city-model"
+  "crates/city-model",
+  "crates/repo-skyline-cli"
 ]
 resolver = "2"
