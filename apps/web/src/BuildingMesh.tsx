@@ -41,15 +41,21 @@ export default function BuildingMesh({
     if (!mesh || !material) return;
 
     if (changeKind === "added") {
+      mesh.scale.x = 1;
+      mesh.scale.z = 1;
       progressRef.current = Math.min(1, progressRef.current + delta * 2.7);
       const t = 1 - Math.pow(1 - progressRef.current, 3);
       mesh.scale.y = Math.max(0.03, t);
       mesh.position.y = (height * mesh.scale.y) / 2;
+      material.opacity = 1;
+      material.transparent = false;
       material.emissiveIntensity = 0.35 * (1 - t) + 0.1;
       return;
     }
 
     if (changeKind === "deleted") {
+      mesh.scale.x = 1;
+      mesh.scale.z = 1;
       progressRef.current = Math.min(1, progressRef.current + delta * 2.4);
       const scale = Math.max(0.03, 1 - progressRef.current);
       mesh.scale.y = scale;
@@ -66,6 +72,8 @@ export default function BuildingMesh({
     material.transparent = false;
 
     if (changeKind === "modified") {
+      mesh.scale.x = 1;
+      mesh.scale.z = 1;
       material.emissiveIntensity =
         0.25 + (Math.sin(state.clock.elapsedTime * 10) + 1) * 0.25;
     } else if (changeKind === "renamed") {
