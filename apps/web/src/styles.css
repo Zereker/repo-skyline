@@ -120,6 +120,46 @@ h1 {
   display: block;
 }
 
+.legend {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  display: flex;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid #263752;
+  border-radius: 8px;
+  background: rgba(8, 13, 24, 0.82);
+  color: #9fb1cb;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.legend span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.legend-dot.added {
+  background: #7ee787;
+}
+
+.legend-dot.modified {
+  background: #ffd166;
+}
+
+.legend-dot.renamed {
+  background: #c084fc;
+}
+
 .hint {
   position: absolute;
   left: 18px;
