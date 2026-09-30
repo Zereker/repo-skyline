@@ -24,6 +24,12 @@ function stableHash(input: string) {
   return hash >>> 0;
 }
 
+export function colorForContributor(author?: string | null) {
+  if (!author) return "#64748b";
+  const hue = stableHash(author) % 360;
+  return `hsl(${hue} 72% 62%)`;
+}
+
 export function layoutCity(city: CityProject): PlacedDistrict[] {
   const districts = [...city.districts].sort((a, b) => a.path.localeCompare(b.path));
   const columns = Math.max(1, Math.ceil(Math.sqrt(districts.length)));
@@ -74,7 +80,7 @@ export function activeDistrictsAt(
       buildings: district.buildings.filter(
         (building) =>
           building.created_at <= timestamp &&
-          (building.deleted_at == null || building.deleted_at > timestamp),
+          (building.deleted_at == null || building.deleted_at >= timestamp),
       ),
     }))
     .filter((district) => district.buildings.length > 0);
