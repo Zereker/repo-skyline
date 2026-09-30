@@ -1,5 +1,6 @@
+import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { sampleCity } from "./sampleCity";
 import type { Building, CityProject, District } from "./types";
 
@@ -113,13 +114,49 @@ function CityScene({
           ))}
         </group>
       ))}
+      <OrbitControls
+        makeDefault
+        enableDamping
+        minDistance={8}
+        maxDistance={100}
+        maxPolarAngle={Math.PI / 2.05}
+      />
     </>
   );
 }
 
 export default function App() {
-  const [city] = useState<CityProject>(sampleCity);
+  const [city, setCity] = useState<CityProject>(sampleCity);
   const [selected, setSelected] = useState<PlacedBuilding | null>(null);
+  const [dataSource, setDataSource] = useState<"generated" | "sample">("sample");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/city.json", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("city.json not found");
+        }
+        return response.json() as Promise<CityProject>;
+      })
+      .then((generatedCity) => {
+        if (!cancelled && generatedCity.districts) {
+          setCity(generatedCity);
+          setDataSource("generated");
+          setSelected(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDataSource("sample");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const totalBuildings = city.districts.reduce(
     (total, district) => total + district.buildings.length,
@@ -134,6 +171,7 @@ export default function App() {
           <h1>{city.repository}</h1>
         </div>
         <div className="stats">
+          <span>{dataSource === "generated" ? "Git-backed data" : "Sample data"}</span>
           <span>{city.districts.length} districts</span>
           <span>{totalBuildings} buildings</span>
         </div>
@@ -155,7 +193,9 @@ export default function App() {
             <color attach="background" args={["#080d18"]} />
             <CityScene city={city} onSelect={setSelected} />
           </Canvas>
-          <div className="hint">Click a building to inspect its Git-backed metrics.</div>
+          <div className="hint">
+            Drag to orbit · scroll to zoom · click a building to inspect
+          </div>
         </div>
 
         <aside className="panel inspector">
