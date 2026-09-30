@@ -28,8 +28,21 @@ fn main() -> Result<()> {
             let history = git_analyzer::analyze_repository(&path)?;
             let city = city_model::project_city(&history);
             let json = serde_json::to_string_pretty(&city)?;
+
+            if let Some(parent) = output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+                fs::create_dir_all(parent)?;
+            }
+
             fs::write(&output, json)?;
-            println!("wrote {}", output.display());
+            println!(
+                "wrote {} ({} districts, {} buildings)",
+                output.display(),
+                city.districts.len(),
+                city.districts
+                    .iter()
+                    .map(|district| district.buildings.len())
+                    .sum::<usize>()
+            );
         }
     }
 
