@@ -1,6 +1,7 @@
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
+import PlaybackControls from "./PlaybackControls";
 import { sampleCity } from "./sampleCity";
 import { visibleCityAt } from "./timeline";
 import type { Building, CityProject, District } from "./types";
@@ -254,19 +255,30 @@ export default function App() {
       </section>
 
       <footer className="timeline">
-        <div className="commit-card">
-          <div>
-            <p className="panel-label">Commit timeline</p>
-            <strong>{currentCommit?.message ?? "No commits"}</strong>
-            <p className="commit-meta">
-              {currentCommit
-                ? `${currentCommit.author} · ${currentDate} · ${currentCommit.id.slice(0, 8)}`
-                : currentDate}
-            </p>
+        <div className="timeline-topline">
+          <PlaybackControls
+            length={city.timeline.length}
+            index={commitIndex}
+            onIndexChange={(index) => {
+              setSelected(null);
+              setCommitIndex(index);
+            }}
+          />
+
+          <div className="commit-card">
+            <div>
+              <p className="panel-label">Commit timeline</p>
+              <strong>{currentCommit?.message ?? "No commits"}</strong>
+              <p className="commit-meta">
+                {currentCommit
+                  ? `${currentCommit.author} · ${currentDate} · ${currentCommit.id.slice(0, 8)}`
+                  : currentDate}
+              </p>
+            </div>
+            <span className="change-count">
+              {currentCommit?.changes.length ?? 0} file changes
+            </span>
           </div>
-          <span className="change-count">
-            {currentCommit?.changes.length ?? 0} file changes
-          </span>
         </div>
 
         <input
