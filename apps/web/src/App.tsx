@@ -2,6 +2,7 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
 import { sampleCity } from "./sampleCity";
+import { visibleCityAt } from "./timeline";
 import type { Building, CityProject, District } from "./types";
 
 type PlacedBuilding = Building & {
@@ -33,7 +34,6 @@ function layoutCity(city: CityProject): PlacedDistrict[] {
     const depth = Math.max(7, localRows * 2.3 + 2);
     const districtColumn = districtIndex % columns;
     const districtRow = Math.floor(districtIndex / columns);
-
     const x = districtColumn * 15;
     const z = districtRow * 15;
 
@@ -166,12 +166,22 @@ export default function App() {
     };
   }, []);
 
-  const totalBuildings = city.districts.reduce(
+  const currentCommit = city.timeline[commitIndex] ?? null;
+  const currentTimestamp =
+    currentCommit?.timestamp ??
+    city.timeline.at(-1)?.timestamp ??
+    Number.MAX_SAFE_INTEGER;
+
+  const visibleCity = useMemo(
+    () => visibleCityAt(city, currentTimestamp),
+    [city, currentTimestamp],
+  );
+
+  const totalBuildings = visibleCity.districts.reduce(
     (total, district) => total + district.buildings.length,
     0,
   );
 
-  const currentCommit = city.timeline[commitIndex] ?? null;
   const currentDate = currentCommit
     ? new Date(currentCommit.timestamp * 1000).toLocaleString()
     : "No commit history";
@@ -185,16 +195,16 @@ export default function App() {
         </div>
         <div className="stats">
           <span>{dataSource === "generated" ? "Git-backed data" : "Sample data"}</span>
-          <span>{city.districts.length} districts</span>
-          <span>{totalBuildings} buildings</span>
+          <span>{visibleCity.districts.length} active districts</span>
+          <span>{totalBuildings} active buildings</span>
           <span>{city.timeline.length} commits</span>
         </div>
       </header>
 
       <section className="workspace">
         <aside className="panel">
-          <p className="panel-label">Districts</p>
-          {city.districts.map((district: District) => (
+          <p className="panel-label">Districts at this commit</p>
+          {visibleCity.districts.map((district: District) => (
             <div className="district-row" key={district.path}>
               <span>{district.path}</span>
               <strong>{district.buildings.length}</strong>
@@ -205,7 +215,7 @@ export default function App() {
         <div className="canvas-wrap">
           <Canvas camera={{ position: [22, 24, 28], fov: 44 }}>
             <color attach="background" args={["#080d18"]} />
-            <CityScene city={city} onSelect={setSelected} />
+            <CityScene city={visibleCity} onSelect={setSelected} />
           </Canvas>
           <div className="hint">
             Drag to orbit · scroll to zoom · click a building to inspect
@@ -266,7 +276,10 @@ export default function App() {
           max={Math.max(0, city.timeline.length - 1)}
           value={Math.min(commitIndex, Math.max(0, city.timeline.length - 1))}
           disabled={city.timeline.length === 0}
-          onChange={(event) => setCommitIndex(Number(event.target.value))}
+          onChange={(event) => {
+            setSelected(null);
+            setCommitIndex(Number(event.target.value));
+          }}
           aria-label="Commit timeline"
         />
 
