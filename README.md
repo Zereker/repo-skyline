@@ -4,6 +4,12 @@
 
 Repo Skyline turns Git history into a living city. Directories become districts, files become buildings, commits become construction events, and contributors become the builders shaping the skyline over time.
 
+## Docs
+
+- [Product Requirements](docs/PRD.md)
+- [Technical Design](docs/TECHNICAL_DESIGN.md)
+- [Roadmap](docs/ROADMAP.md)
+
 ## MVP
 
 - Parse Git history in Rust
@@ -19,11 +25,13 @@ Repo Skyline turns Git history into a living city. Directories become districts,
 
 ```text
 Git repository
-  -> Rust analyzer
-  -> normalized history model
-  -> city model
+  -> Git analyzer
+  -> repository history model
+  -> city projection
   -> web renderer
 ```
+
+The detailed design deliberately separates Git parsing from the city projection so future views such as ownership, architecture, bugs, and AI activity can reuse the same repository history model.
 
 ## Workspace
 
@@ -33,3 +41,11 @@ crates/city-model
 apps/web
 docs
 ```
+
+## Next milestone
+
+```text
+repo-skyline analyze .
+```
+
+should output real commit history and a deterministic city model backed by Git data.
