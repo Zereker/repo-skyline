@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "crates/git-analyzer",
+  "crates/city-model"
+]
+resolver = "2"
