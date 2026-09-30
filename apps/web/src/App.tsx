@@ -2,73 +2,42 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
 import PlaybackControls from "./PlaybackControls";
+import {
+  activeDistrictsAt,
+  layoutCity,
+  type PlacedBuilding,
+  type PlacedDistrict,
+} from "./cityLayout";
 import { sampleCity } from "./sampleCity";
-import { visibleCityAt } from "./timeline";
-import type { Building, CityProject, District } from "./types";
-
-type PlacedBuilding = Building & {
-  x: number;
-  z: number;
-  district: string;
-};
-
-type PlacedDistrict = {
-  path: string;
-  x: number;
-  z: number;
-  width: number;
-  depth: number;
-  buildings: PlacedBuilding[];
-};
+import type { CityEventKind, CityProject, District } from "./types";
 
 function buildingHeight(lines: number) {
   return Math.max(0.7, Math.min(11, Math.log2(lines + 1) * 0.9));
 }
 
-function layoutCity(city: CityProject): PlacedDistrict[] {
-  const columns = Math.max(1, Math.ceil(Math.sqrt(city.districts.length)));
-
-  return city.districts.map((district, districtIndex) => {
-    const localColumns = Math.max(1, Math.ceil(Math.sqrt(district.buildings.length)));
-    const localRows = Math.max(1, Math.ceil(district.buildings.length / localColumns));
-    const width = Math.max(7, localColumns * 2.3 + 2);
-    const depth = Math.max(7, localRows * 2.3 + 2);
-    const districtColumn = districtIndex % columns;
-    const districtRow = Math.floor(districtIndex / columns);
-    const x = districtColumn * 15;
-    const z = districtRow * 15;
-
-    const buildings = district.buildings.map((building, buildingIndex) => {
-      const column = buildingIndex % localColumns;
-      const row = Math.floor(buildingIndex / localColumns);
-
-      return {
-        ...building,
-        district: district.path,
-        x: x - width / 2 + 2 + column * 2.3,
-        z: z - depth / 2 + 2 + row * 2.3,
-      };
-    });
-
-    return {
-      path: district.path,
-      x,
-      z,
-      width,
-      depth,
-      buildings,
-    };
-  });
-}
-
 function BuildingMesh({
   building,
+  changeKind,
   onSelect,
 }: {
   building: PlacedBuilding;
+  changeKind?: CityEventKind;
   onSelect: (building: PlacedBuilding) => void;
 }) {
   const height = buildingHeight(building.lines);
+  const color =
+    changeKind === "added"
+      ? "#7ee787"
+      : changeKind === "modified"
+        ? "#ffd166"
+        : changeKind === "renamed"
+          ? "#c084fc"
+          : "#75a7ff";
+
+  const emissive =
+    changeKind === "added" || changeKind === "modified" || changeKind === "renamed"
+      ? color
+      : "#000000";
 
   return (
     <mesh
@@ -79,7 +48,13 @@ function BuildingMesh({
       }}
     >
       <boxGeometry args={[1.5, height, 1.5]} />
-      <meshStandardMaterial color="#75a7ff" roughness={0.72} metalness={0.05} />
+      <meshStandardMaterial
+        color={color}
+        emissive={emissive}
+        emissiveIntensity={changeKind ? 0.28 : 0}
+        roughness={0.72}
+        metalness={0.05}
+      />
     </mesh>
   );
 }
@@ -94,27 +69,35 @@ function DistrictGround({ district }: { district: PlacedDistrict }) {
 }
 
 function CityScene({
-  city,
+  districts,
+  activeChanges,
   onSelect,
 }: {
-  city: CityProject;
+  districts: PlacedDistrict[];
+  activeChanges: Map<string, CityEventKind>;
   onSelect: (building: PlacedBuilding) => void;
 }) {
-  const districts = useMemo(() => layoutCity(city), [city]);
-
   return (
     <>
       <ambientLight intensity={1.7} />
       <directionalLight position={[12, 22, 10]} intensity={2.6} />
       <gridHelper args={[120, 60, "#334155", "#172033"]} />
+
       {districts.map((district) => (
         <group key={district.path}>
           <DistrictGround district={district} />
+
           {district.buildings.map((building) => (
-            <BuildingMesh key={building.id} building={building} onSelect={onSelect} />
+            <BuildingMesh
+              key={building.id}
+              building={building}
+              changeKind={activeChanges.get(building.path)}
+              onSelect={onSelect}
+            />
           ))}
         </group>
       ))}
+
       <OrbitControls
         makeDefault
         enableDamping
@@ -150,6 +133,7 @@ export default function App() {
             ...generatedCity,
             timeline: generatedCity.timeline ?? [],
           };
+
           setCity(normalized);
           setCommitIndex(Math.max(0, normalized.timeline.length - 1));
           setDataSource("generated");
@@ -173,12 +157,25 @@ export default function App() {
     city.timeline.at(-1)?.timestamp ??
     Number.MAX_SAFE_INTEGER;
 
-  const visibleCity = useMemo(
-    () => visibleCityAt(city, currentTimestamp),
-    [city, currentTimestamp],
+  const stableDistricts = useMemo(() => layoutCity(city), [city]);
+  const activeDistricts = useMemo(
+    () => activeDistrictsAt(stableDistricts, currentTimestamp),
+    [stableDistricts, currentTimestamp],
   );
 
-  const totalBuildings = visibleCity.districts.reduce(
+  const activeChanges = useMemo(() => {
+    const map = new Map<string, CityEventKind>();
+
+    for (const change of currentCommit?.changes ?? []) {
+      if (change.kind !== "deleted") {
+        map.set(change.path, change.kind);
+      }
+    }
+
+    return map;
+  }, [currentCommit]);
+
+  const totalBuildings = activeDistricts.reduce(
     (total, district) => total + district.buildings.length,
     0,
   );
@@ -187,6 +184,11 @@ export default function App() {
     ? new Date(currentCommit.timestamp * 1000).toLocaleString()
     : "No commit history";
 
+  const activeDistrictModels: District[] = activeDistricts.map((district) => ({
+    path: district.path,
+    buildings: district.buildings,
+  }));
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -194,9 +196,10 @@ export default function App() {
           <p className="eyebrow">REPO SKYLINE</p>
           <h1>{city.repository}</h1>
         </div>
+
         <div className="stats">
           <span>{dataSource === "generated" ? "Git-backed data" : "Sample data"}</span>
-          <span>{visibleCity.districts.length} active districts</span>
+          <span>{activeDistricts.length} active districts</span>
           <span>{totalBuildings} active buildings</span>
           <span>{city.timeline.length} commits</span>
         </div>
@@ -205,7 +208,7 @@ export default function App() {
       <section className="workspace">
         <aside className="panel">
           <p className="panel-label">Districts at this commit</p>
-          {visibleCity.districts.map((district: District) => (
+          {activeDistrictModels.map((district) => (
             <div className="district-row" key={district.path}>
               <span>{district.path}</span>
               <strong>{district.buildings.length}</strong>
@@ -216,8 +219,19 @@ export default function App() {
         <div className="canvas-wrap">
           <Canvas camera={{ position: [22, 24, 28], fov: 44 }}>
             <color attach="background" args={["#080d18"]} />
-            <CityScene city={visibleCity} onSelect={setSelected} />
+            <CityScene
+              districts={activeDistricts}
+              activeChanges={activeChanges}
+              onSelect={setSelected}
+            />
           </Canvas>
+
+          <div className="legend">
+            <span><i className="legend-dot added" />Added</span>
+            <span><i className="legend-dot modified" />Modified</span>
+            <span><i className="legend-dot renamed" />Renamed</span>
+          </div>
+
           <div className="hint">
             Drag to orbit · scroll to zoom · click a building to inspect
           </div>
@@ -225,10 +239,12 @@ export default function App() {
 
         <aside className="panel inspector">
           <p className="panel-label">Building inspector</p>
+
           {selected ? (
             <>
               <h2>{selected.path.split("/").at(-1)}</h2>
               <p className="path">{selected.path}</p>
+
               <dl>
                 <div>
                   <dt>District</dt>
@@ -275,6 +291,7 @@ export default function App() {
                   : currentDate}
               </p>
             </div>
+
             <span className="change-count">
               {currentCommit?.changes.length ?? 0} file changes
             </span>
