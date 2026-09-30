@@ -1,0 +1,9 @@
+[package]
+name = "git-analyzer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gix = "0.73"
+serde = { version = "1", features = ["derive"] }
+city-model = { path = "../city-model" }
