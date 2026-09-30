@@ -20,7 +20,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -176,11 +177,52 @@ dd {
   padding: 14px 24px 18px;
 }
 
+.timeline-topline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.playback-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.play-button,
+.secondary-button,
+.speed-select {
+  min-height: 36px;
+  border: 1px solid #2a3b58;
+  border-radius: 8px;
+  padding: 0 12px;
+}
+
+.play-button {
+  background: #75a7ff;
+  border-color: #75a7ff;
+  color: #07101f;
+  font-weight: 800;
+}
+
+.secondary-button,
+.speed-select {
+  background: #101a2c;
+  color: #b7c7df;
+}
+
+.play-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.45;
+}
+
 .commit-card {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 24px;
+  min-width: 0;
 }
 
 .commit-card strong {
@@ -243,6 +285,10 @@ dd {
 
   .canvas-wrap {
     min-height: 620px;
+  }
+
+  .timeline-topline {
+    grid-template-columns: 1fr;
   }
 
   .commit-card {
