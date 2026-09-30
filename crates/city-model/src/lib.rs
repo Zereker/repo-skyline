@@ -22,6 +22,8 @@ pub struct Building {
     pub lines: u64,
     pub commits: u32,
     pub primary_author: Option<String>,
+    pub created_at: i64,
+    pub deleted_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,7 +54,7 @@ pub enum CityEventKind {
 pub fn project_city(history: &RepositoryHistory) -> CityProject {
     let mut grouped: BTreeMap<String, Vec<Building>> = BTreeMap::new();
 
-    for file in history.files.iter().filter(|file| file.deleted_at.is_none()) {
+    for file in &history.files {
         let primary_author = file
             .authors
             .iter()
@@ -68,6 +70,8 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
                 lines: file.current_lines,
                 commits: file.commit_count,
                 primary_author,
+                created_at: file.created_at,
+                deleted_at: file.deleted_at,
             });
     }
 
