@@ -54,4 +54,27 @@ export const sampleCity: CityProject = {
       ],
     },
   ],
+  timeline: [
+    {
+      id: "a6481a7",
+      timestamp: 1790750000,
+      author: "Zereker",
+      message: "chore: initialize Repo Skyline",
+      changes: [{ path: "README.md", kind: "added" }],
+    },
+    {
+      id: "51f4a68",
+      timestamp: 1790751800,
+      author: "Zereker",
+      message: "feat: walk real commit history",
+      changes: [{ path: "crates/git-analyzer/src/lib.rs", kind: "modified" }],
+    },
+    {
+      id: "890110d",
+      timestamp: 1790755200,
+      author: "Zereker",
+      message: "feat: implement stable git CLI history analyzer",
+      changes: [{ path: "crates/git-analyzer/src/lib.rs", kind: "modified" }],
+    },
+  ],
 };
