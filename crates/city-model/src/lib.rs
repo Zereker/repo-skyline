@@ -26,11 +26,11 @@ pub struct Building {
 pub fn project_city(history: &RepositoryHistory) -> CityProject {
     let mut grouped: BTreeMap<String, Vec<Building>> = BTreeMap::new();
 
-    for file in &history.files {
+    for file in history.files.iter().filter(|file| file.deleted_at.is_none()) {
         let primary_author = file
             .authors
             .iter()
-            .max_by_key(|contribution| contribution.additions)
+            .max_by_key(|contribution| contribution.commits)
             .map(|contribution| contribution.author_id.clone());
 
         grouped
