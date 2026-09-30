@@ -1,4 +1,4 @@
-use repository_model::RepositoryHistory;
+use repository_model::{ChangeKind, RepositoryHistory};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub struct CityProject {
     pub repository: String,
     pub districts: Vec<District>,
+    pub timeline: Vec<TimelineCommit>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +22,31 @@ pub struct Building {
     pub lines: u64,
     pub commits: u32,
     pub primary_author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineCommit {
+    pub id: String,
+    pub timestamp: i64,
+    pub author: String,
+    pub message: String,
+    pub changes: Vec<CityEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CityEvent {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub kind: CityEventKind,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CityEventKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
 }
 
 pub fn project_city(history: &RepositoryHistory) -> CityProject {
@@ -53,8 +79,34 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
         })
         .collect();
 
+    let timeline = history
+        .commits
+        .iter()
+        .map(|commit| TimelineCommit {
+            id: commit.id.clone(),
+            timestamp: commit.timestamp,
+            author: commit.author_name.clone(),
+            message: commit.message.clone(),
+            changes: commit
+                .changes
+                .iter()
+                .map(|change| CityEvent {
+                    path: change.path.clone(),
+                    old_path: change.old_path.clone(),
+                    kind: match change.kind {
+                        ChangeKind::Added => CityEventKind::Added,
+                        ChangeKind::Modified => CityEventKind::Modified,
+                        ChangeKind::Deleted => CityEventKind::Deleted,
+                        ChangeKind::Renamed => CityEventKind::Renamed,
+                    },
+                })
+                .collect(),
+        })
+        .collect();
+
     CityProject {
         repository: history.repository.name.clone(),
         districts,
+        timeline,
     }
 }
