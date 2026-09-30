@@ -129,6 +129,9 @@ export default function App() {
   const [city, setCity] = useState<CityProject>(sampleCity);
   const [selected, setSelected] = useState<PlacedBuilding | null>(null);
   const [dataSource, setDataSource] = useState<"generated" | "sample">("sample");
+  const [commitIndex, setCommitIndex] = useState(
+    Math.max(0, sampleCity.timeline.length - 1),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -142,7 +145,12 @@ export default function App() {
       })
       .then((generatedCity) => {
         if (!cancelled && generatedCity.districts) {
-          setCity(generatedCity);
+          const normalized = {
+            ...generatedCity,
+            timeline: generatedCity.timeline ?? [],
+          };
+          setCity(normalized);
+          setCommitIndex(Math.max(0, normalized.timeline.length - 1));
           setDataSource("generated");
           setSelected(null);
         }
@@ -163,6 +171,11 @@ export default function App() {
     0,
   );
 
+  const currentCommit = city.timeline[commitIndex] ?? null;
+  const currentDate = currentCommit
+    ? new Date(currentCommit.timestamp * 1000).toLocaleString()
+    : "No commit history";
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -174,6 +187,7 @@ export default function App() {
           <span>{dataSource === "generated" ? "Git-backed data" : "Sample data"}</span>
           <span>{city.districts.length} districts</span>
           <span>{totalBuildings} buildings</span>
+          <span>{city.timeline.length} commits</span>
         </div>
       </header>
 
@@ -228,6 +242,44 @@ export default function App() {
           )}
         </aside>
       </section>
+
+      <footer className="timeline">
+        <div className="commit-card">
+          <div>
+            <p className="panel-label">Commit timeline</p>
+            <strong>{currentCommit?.message ?? "No commits"}</strong>
+            <p className="commit-meta">
+              {currentCommit
+                ? `${currentCommit.author} · ${currentDate} · ${currentCommit.id.slice(0, 8)}`
+                : currentDate}
+            </p>
+          </div>
+          <span className="change-count">
+            {currentCommit?.changes.length ?? 0} file changes
+          </span>
+        </div>
+
+        <input
+          className="timeline-range"
+          type="range"
+          min={0}
+          max={Math.max(0, city.timeline.length - 1)}
+          value={Math.min(commitIndex, Math.max(0, city.timeline.length - 1))}
+          disabled={city.timeline.length === 0}
+          onChange={(event) => setCommitIndex(Number(event.target.value))}
+          aria-label="Commit timeline"
+        />
+
+        <div className="timeline-labels">
+          <span>{city.timeline.at(0)?.message ?? "Start"}</span>
+          <span>
+            {city.timeline.length > 0
+              ? `${commitIndex + 1} / ${city.timeline.length}`
+              : "0 / 0"}
+          </span>
+          <span>{city.timeline.at(-1)?.message ?? "Current"}</span>
+        </div>
+      </footer>
     </main>
   );
 }
