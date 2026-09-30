@@ -1,118 +1,24 @@
-import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
+import CityScene from "./CityScene";
+import CommitChanges from "./CommitChanges";
 import PlaybackControls from "./PlaybackControls";
 import {
   activeDistrictsAt,
+  colorForContributor,
   layoutCity,
   type PlacedBuilding,
-  type PlacedDistrict,
 } from "./cityLayout";
 import { sampleCity } from "./sampleCity";
 import type { CityEventKind, CityProject, District } from "./types";
 
-function buildingHeight(lines: number) {
-  return Math.max(0.7, Math.min(11, Math.log2(lines + 1) * 0.9));
-}
-
-function BuildingMesh({
-  building,
-  changeKind,
-  onSelect,
-}: {
-  building: PlacedBuilding;
-  changeKind?: CityEventKind;
-  onSelect: (building: PlacedBuilding) => void;
-}) {
-  const height = buildingHeight(building.lines);
-  const color =
-    changeKind === "added"
-      ? "#7ee787"
-      : changeKind === "modified"
-        ? "#ffd166"
-        : changeKind === "renamed"
-          ? "#c084fc"
-          : "#75a7ff";
-
-  const emissive =
-    changeKind === "added" || changeKind === "modified" || changeKind === "renamed"
-      ? color
-      : "#000000";
-
-  return (
-    <mesh
-      position={[building.x, height / 2, building.z]}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect(building);
-      }}
-    >
-      <boxGeometry args={[1.5, height, 1.5]} />
-      <meshStandardMaterial
-        color={color}
-        emissive={emissive}
-        emissiveIntensity={changeKind ? 0.28 : 0}
-        roughness={0.72}
-        metalness={0.05}
-      />
-    </mesh>
-  );
-}
-
-function DistrictGround({ district }: { district: PlacedDistrict }) {
-  return (
-    <mesh position={[district.x, -0.08, district.z]}>
-      <boxGeometry args={[district.width, 0.12, district.depth]} />
-      <meshStandardMaterial color="#172033" roughness={1} />
-    </mesh>
-  );
-}
-
-function CityScene({
-  districts,
-  activeChanges,
-  onSelect,
-}: {
-  districts: PlacedDistrict[];
-  activeChanges: Map<string, CityEventKind>;
-  onSelect: (building: PlacedBuilding) => void;
-}) {
-  return (
-    <>
-      <ambientLight intensity={1.7} />
-      <directionalLight position={[12, 22, 10]} intensity={2.6} />
-      <gridHelper args={[120, 60, "#334155", "#172033"]} />
-
-      {districts.map((district) => (
-        <group key={district.path}>
-          <DistrictGround district={district} />
-
-          {district.buildings.map((building) => (
-            <BuildingMesh
-              key={building.id}
-              building={building}
-              changeKind={activeChanges.get(building.path)}
-              onSelect={onSelect}
-            />
-          ))}
-        </group>
-      ))}
-
-      <OrbitControls
-        makeDefault
-        enableDamping
-        minDistance={8}
-        maxDistance={100}
-        maxPolarAngle={Math.PI / 2.05}
-      />
-    </>
-  );
-}
+type ViewMode = "district" | "territory";
 
 export default function App() {
   const [city, setCity] = useState<CityProject>(sampleCity);
   const [selected, setSelected] = useState<PlacedBuilding | null>(null);
   const [dataSource, setDataSource] = useState<"generated" | "sample">("sample");
+  const [viewMode, setViewMode] = useState<ViewMode>("district");
   const [commitIndex, setCommitIndex] = useState(
     Math.max(0, sampleCity.timeline.length - 1),
   );
@@ -122,9 +28,7 @@ export default function App() {
 
     fetch("/city.json", { cache: "no-store" })
       .then((response) => {
-        if (!response.ok) {
-          throw new Error("city.json not found");
-        }
+        if (!response.ok) throw new Error("city.json not found");
         return response.json() as Promise<CityProject>;
       })
       .then((generatedCity) => {
@@ -141,9 +45,7 @@ export default function App() {
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setDataSource("sample");
-        }
+        if (!cancelled) setDataSource("sample");
       });
 
     return () => {
@@ -167,18 +69,41 @@ export default function App() {
     const map = new Map<string, CityEventKind>();
 
     for (const change of currentCommit?.changes ?? []) {
-      if (change.kind !== "deleted") {
-        map.set(change.path, change.kind);
-      }
+      map.set(change.path, change.kind);
     }
 
     return map;
   }, [currentCommit]);
 
+  useEffect(() => {
+    if (!selected) return;
+
+    const stillVisible = activeDistricts.some((district) =>
+      district.buildings.some((building) => building.id === selected.id),
+    );
+
+    if (!stillVisible) setSelected(null);
+  }, [activeDistricts, selected]);
+
   const totalBuildings = activeDistricts.reduce(
     (total, district) => total + district.buildings.length,
     0,
   );
+
+  const contributorTerritories = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const district of activeDistricts) {
+      for (const building of district.buildings) {
+        const author = building.primary_author ?? "Unknown";
+        counts.set(author, (counts.get(author) ?? 0) + 1);
+      }
+    }
+
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+  }, [activeDistricts]);
 
   const currentDate = currentCommit
     ? new Date(currentCommit.timestamp * 1000).toLocaleString()
@@ -197,23 +122,60 @@ export default function App() {
           <h1>{city.repository}</h1>
         </div>
 
-        <div className="stats">
-          <span>{dataSource === "generated" ? "Git-backed data" : "Sample data"}</span>
-          <span>{activeDistricts.length} active districts</span>
-          <span>{totalBuildings} active buildings</span>
-          <span>{city.timeline.length} commits</span>
+        <div className="topbar-actions">
+          <div className="mode-toggle" aria-label="City view mode">
+            <button
+              type="button"
+              className={viewMode === "district" ? "active" : ""}
+              onClick={() => setViewMode("district")}
+            >
+              District
+            </button>
+            <button
+              type="button"
+              className={viewMode === "territory" ? "active" : ""}
+              onClick={() => setViewMode("territory")}
+            >
+              Contributor Territory
+            </button>
+          </div>
+
+          <div className="stats">
+            <span>{dataSource === "generated" ? "Git-backed data" : "Sample data"}</span>
+            <span>{activeDistricts.length} districts</span>
+            <span>{totalBuildings} buildings</span>
+            <span>{city.timeline.length} commits</span>
+          </div>
         </div>
       </header>
 
       <section className="workspace">
         <aside className="panel">
-          <p className="panel-label">Districts at this commit</p>
-          {activeDistrictModels.map((district) => (
-            <div className="district-row" key={district.path}>
-              <span>{district.path}</span>
-              <strong>{district.buildings.length}</strong>
+          <p className="panel-label">
+            {viewMode === "territory" ? "Contributor territories" : "Districts at this commit"}
+          </p>
+
+          {viewMode === "territory" ? (
+            <div className="territory-list">
+              {contributorTerritories.map(([author, count]) => (
+                <div className="territory-row" key={author}>
+                  <span
+                    className="territory-swatch"
+                    style={{ background: colorForContributor(author) }}
+                  />
+                  <span title={author}>{author}</span>
+                  <strong>{count}</strong>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : (
+            activeDistrictModels.map((district) => (
+              <div className="district-row" key={district.path}>
+                <span>{district.path}</span>
+                <strong>{district.buildings.length}</strong>
+              </div>
+            ))
+          )}
         </aside>
 
         <div className="canvas-wrap">
@@ -222,6 +184,8 @@ export default function App() {
             <CityScene
               districts={activeDistricts}
               activeChanges={activeChanges}
+              commitId={currentCommit?.id}
+              viewMode={viewMode}
               onSelect={setSelected}
             />
           </Canvas>
@@ -229,6 +193,7 @@ export default function App() {
           <div className="legend">
             <span><i className="legend-dot added" />Added</span>
             <span><i className="legend-dot modified" />Modified</span>
+            <span><i className="legend-dot deleted" />Deleted</span>
             <span><i className="legend-dot renamed" />Renamed</span>
           </div>
 
@@ -267,6 +232,8 @@ export default function App() {
           ) : (
             <p className="empty">Select a building in the city.</p>
           )}
+
+          <CommitChanges commit={currentCommit} />
         </aside>
       </section>
 
