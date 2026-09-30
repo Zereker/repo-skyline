@@ -4,6 +4,8 @@ export type Building = {
   lines: number;
   commits: number;
   primary_author?: string | null;
+  created_at: number;
+  deleted_at?: number | null;
 };
 
 export type District = {
