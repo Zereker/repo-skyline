@@ -100,28 +100,28 @@ export default function CityScene({
 
       segments.push(
         {
-          id: \`\${district.path}:top\`,
+          id: `${district.path}:top`,
           x: district.x,
           z: district.z - roadOffsetZ,
           width: district.width,
           depth: 0.42,
         },
         {
-          id: \`\${district.path}:bottom\`,
+          id: `${district.path}:bottom`,
           x: district.x,
           z: district.z + roadOffsetZ,
           width: district.width,
           depth: 0.42,
         },
         {
-          id: \`\${district.path}:left\`,
+          id: `${district.path}:left`,
           x: district.x - roadOffsetX,
           z: district.z,
           width: 0.42,
           depth: district.depth,
         },
         {
-          id: \`\${district.path}:right\`,
+          id: `${district.path}:right`,
           x: district.x + roadOffsetX,
           z: district.z,
           width: 0.42,
@@ -148,7 +148,7 @@ export default function CityScene({
         const gap = to.x - from.x - from.width / 2 - to.width / 2;
         if (gap > 0.8) {
           segments.push({
-            id: \`link-x:\${from.path}:\${to.path}\`,
+            id: `link-x:${from.path}:${to.path}`,
             x: (from.x + to.x) / 2,
             z: (from.z + to.z) / 2,
             width: gap,
@@ -166,7 +166,7 @@ export default function CityScene({
         const gap = to.z - from.z - from.depth / 2 - to.depth / 2;
         if (gap > 0.8) {
           segments.push({
-            id: \`link-z:\${from.path}:\${to.path}\`,
+            id: `link-z:${from.path}:${to.path}`,
             x: (from.x + to.x) / 2,
             z: (from.z + to.z) / 2,
             width: 0.5,
@@ -307,7 +307,7 @@ export default function CityScene({
 
       {cochangeRoads.map((road) => (
         <mesh
-          key={\`\${road.from.id}:\${road.to.id}\`}
+          key={`${road.from.id}:${road.to.id}`}
           position={[
             (road.from.x + road.to.x) / 2,
             0.18,

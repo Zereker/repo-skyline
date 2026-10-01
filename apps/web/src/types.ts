@@ -17,8 +17,8 @@ export type Building = {
   path: string;
   lines: number;
   commits: number;
-  additions: number;
-  deletions: number;
+  additions?: number;
+  deletions?: number;
   contributor_count?: number;
   primary_author?: string | null;
   created_at: number;
@@ -38,8 +38,8 @@ export type CityEvent = {
   path: string;
   old_path?: string | null;
   kind: CityEventKind;
-  additions: number;
-  deletions: number;
+  additions?: number;
+  deletions?: number;
   lines_after?: number | null;
 };
 

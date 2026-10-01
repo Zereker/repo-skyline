@@ -116,8 +116,8 @@ export default function App() {
     : "No commit history";
 
   const currentStats = useMemo(() => ({
-    additions: (currentCommit?.changes ?? []).reduce((sum, change) => sum + change.additions, 0),
-    deletions: (currentCommit?.changes ?? []).reduce((sum, change) => sum + change.deletions, 0),
+    additions: (currentCommit?.changes ?? []).reduce((sum, change) => sum + (change.additions ?? 0), 0),
+    deletions: (currentCommit?.changes ?? []).reduce((sum, change) => sum + (change.deletions ?? 0), 0),
   }), [currentCommit]);
 
   const selectedRecentActivity = selected

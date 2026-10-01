@@ -375,8 +375,18 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 - Release 全城事件波纹
 - 道路骨架与代码活跃 Hotspot
 - Story Mode 进度条、事件类型标签与 cinematic camera orbit
+- Commit-level additions / deletions / lines-after 历史数据
+- 时间轴按 commit 重放真实文件 LOC 与目录迁移
+- Rename 建筑跨 District 迁移动画
+- Building Inspector：状态、LOC、增删、贡献者数、创建/修改时间、近期历史
+- Co-change roads：由真实 Commit 共变关系生成
+- Story milestones：100 / 1000 commit、最大模块、最活跃月份、Ownership transition
 
-## 16. 一句话介绍
+## 16. 验证状态
+
+History Accuracy phase implementation is under CI validation; Rust formatting, Web build, Demo Smoke, and strict Clippy ownership lookup are finalized on the verification branch.
+
+## 17. 一句话介绍
 
 **Repo Skyline turns Git history into a living city.**
 

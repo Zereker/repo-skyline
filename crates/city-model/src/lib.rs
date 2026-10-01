@@ -106,24 +106,27 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
     let mut grouped: BTreeMap<String, Vec<Building>> = BTreeMap::new();
 
     for file in &history.files {
-        grouped.entry(file.directory.clone()).or_default().push(Building {
-            id: file.id.clone(),
-            path: file.path.clone(),
-            lines: file.current_lines,
-            commits: file.commit_count,
-            additions: file.additions,
-            deletions: file.deletions,
-            contributor_count: file.authors.len() as u32,
-            primary_author: file
-                .authors
-                .iter()
-                .max_by_key(|contribution| contribution.commits)
-                .map(|contribution| contribution.author_id.clone()),
-            created_at: file.created_at,
-            deleted_at: file.deleted_at,
-            last_modified_at: file.last_modified_at,
-            history: file.history.clone(),
-        });
+        grouped
+            .entry(file.directory.clone())
+            .or_default()
+            .push(Building {
+                id: file.id.clone(),
+                path: file.path.clone(),
+                lines: file.current_lines,
+                commits: file.commit_count,
+                additions: file.additions,
+                deletions: file.deletions,
+                contributor_count: file.authors.len() as u32,
+                primary_author: file
+                    .authors
+                    .iter()
+                    .max_by_key(|contribution| contribution.commits)
+                    .map(|contribution| contribution.author_id.clone()),
+                created_at: file.created_at,
+                deleted_at: file.deleted_at,
+                last_modified_at: file.last_modified_at,
+                history: file.history.clone(),
+            });
 
         for snapshot in &file.history {
             grouped.entry(directory_of(&snapshot.path)).or_default();
@@ -310,7 +313,11 @@ fn derive_milestones(
             id: "largest-change".to_string(),
             kind: StoryMilestoneKind::LargestChange,
             title: "Biggest construction wave".to_string(),
-            description: format!("{} files changed with {} line edits.", largest.changes.len(), delta),
+            description: format!(
+                "{} files changed with {} line edits.",
+                largest.changes.len(),
+                delta
+            ),
             commit_id: largest.id.clone(),
             timestamp: largest.timestamp,
         });
@@ -373,7 +380,10 @@ fn derive_milestones(
             id: "largest-module".to_string(),
             kind: StoryMilestoneKind::LargestModule,
             title: "District expansion".to_string(),
-            description: format!("{} gained {} new buildings in one commit.", directory, count),
+            description: format!(
+                "{} gained {} new buildings in one commit.",
+                directory, count
+            ),
             commit_id: commit.id.clone(),
             timestamp: commit.timestamp,
         });
@@ -402,20 +412,32 @@ fn derive_milestones(
     }
 
     let mut seen_authors = HashMap::<String, String>::new();
-    for commit in &history.commits {
+    for (commit_index, commit) in history.commits.iter().enumerate() {
         for change in &commit.changes {
             if let Some(file) = history.files.iter().find(|file| {
-                file.history.iter().any(|snapshot| snapshot.path == change.path)
+                file.history
+                    .iter()
+                    .any(|snapshot| snapshot.path == change.path)
             }) {
-                if let Some(previous) = file.history.iter().filter(|snapshot| snapshot.commit_index < history.commits.iter().position(|item| item.id == commit.id).unwrap_or(usize::MAX)).last() {
+                if let Some(previous) = file
+                    .history
+                    .iter()
+                    .rfind(|snapshot| snapshot.commit_index < commit_index)
+                {
                     if previous.author_id != commit.author_id {
                         let key = file.id.clone();
-                        if seen_authors.insert(key, previous.author_id.clone()).is_none() {
+                        if seen_authors
+                            .insert(key, previous.author_id.clone())
+                            .is_none()
+                        {
                             milestones.push(StoryMilestone {
                                 id: format!("ownership-{}", commit.id),
                                 kind: StoryMilestoneKind::OwnershipTransition,
                                 title: "Ownership changes".to_string(),
-                                description: format!("A file changed hands from {} to {}.", previous.author_id, commit.author_id),
+                                description: format!(
+                                    "A file changed hands from {} to {}.",
+                                    previous.author_id, commit.author_id
+                                ),
                                 commit_id: commit.id.clone(),
                                 timestamp: commit.timestamp,
                             });
@@ -427,7 +449,11 @@ fn derive_milestones(
     }
 
     let release_count = history.releases.len();
-    for release in history.releases.iter().skip(release_count.saturating_sub(4)) {
+    for release in history
+        .releases
+        .iter()
+        .skip(release_count.saturating_sub(4))
+    {
         milestones.push(StoryMilestone {
             id: format!("release-{}", release.name),
             kind: StoryMilestoneKind::Release,
@@ -439,7 +465,10 @@ fn derive_milestones(
     }
 
     milestones.sort_by_key(|milestone| milestone.timestamp);
-    milestones.dedup_by(|a, b| a.commit_id == b.commit_id && std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind));
+    milestones.dedup_by(|a, b| {
+        a.commit_id == b.commit_id
+            && std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind)
+    });
     milestones
 }
 

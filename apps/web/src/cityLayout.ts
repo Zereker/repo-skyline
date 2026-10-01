@@ -48,7 +48,7 @@ function historicalPoint(district: PlacedDistrict, path: string) {
 export function colorForContributor(author?: string | null) {
   if (!author) return "#64748b";
   const hue = stableHash(author) % 360;
-  return \`hsl(\${hue} 72% 62%)\`;
+  return `hsl(${hue} 72% 62%)`;
 }
 
 export function layoutCity(city: CityProject): PlacedDistrict[] {
