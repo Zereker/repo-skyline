@@ -157,11 +157,16 @@ export default function CityScene({
     return segments;
   }, [districts]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (!cinematic) return;
 
     const smoothing = 1 - Math.pow(0.001, delta);
-    camera.position.lerp(desired, smoothing);
+    const orbit = state.clock.elapsedTime * 0.34;
+    const cinematicDesired = desired.clone();
+    cinematicDesired.x += Math.sin(orbit) * 1.8;
+    cinematicDesired.z += Math.cos(orbit) * 1.2;
+    cinematicDesired.y += Math.sin(orbit * 0.7) * 0.55;
+    camera.position.lerp(cinematicDesired, smoothing);
     camera.lookAt(target);
   });
 
