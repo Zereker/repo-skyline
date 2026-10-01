@@ -43,6 +43,17 @@ export default function BuildingMesh({
   const progressRef = useRef(1);
   const height = buildingHeight(building.lines);
 
+  const previousLines = useMemo(() => {
+    if (!commitId) return building.lines;
+
+    const index = building.history.findIndex((snapshot) => snapshot.commit_id === commitId);
+    if (index <= 0) return 0;
+
+    return building.history[index - 1]?.lines ?? 0;
+  }, [building.history, building.lines, commitId]);
+
+  const previousHeight = buildingHeight(previousLines);
+
   const shape = useMemo(() => {
     const hash = stableHash(building.id);
     const type = hash % 5;
@@ -56,8 +67,15 @@ export default function BuildingMesh({
 
   useEffect(() => {
     progressRef.current =
-      changeKind === "added" || changeKind === "deleted" ? 0 : 1;
-  }, [changeKind, commitId]);
+      changeKind === "added" || changeKind === "deleted" || changeKind === "modified" || changeKind === "renamed"
+        ? 0
+        : 1;
+
+    if (meshRef.current) {
+      meshRef.current.position.x = building.from_x ?? building.x;
+      meshRef.current.position.z = building.from_z ?? building.z;
+    }
+  }, [changeKind, commitId, building.from_x, building.from_z, building.x, building.z]);
 
   useFrame((state, delta) => {
     const mesh = meshRef.current;
@@ -65,11 +83,11 @@ export default function BuildingMesh({
     if (!mesh || !material) return;
 
     if (changeKind === "added") {
-      mesh.scale.x = 1;
-      mesh.scale.z = 1;
       progressRef.current = Math.min(1, progressRef.current + delta * 2.7);
       const t = 1 - Math.pow(1 - progressRef.current, 3);
-      mesh.scale.y = Math.max(0.03, t);
+      mesh.scale.set(1, Math.max(0.03, t), 1);
+      mesh.position.x = building.x;
+      mesh.position.z = building.z;
       mesh.position.y = (height * mesh.scale.y) / 2;
       material.opacity = 1;
       material.transparent = false;
@@ -78,11 +96,11 @@ export default function BuildingMesh({
     }
 
     if (changeKind === "deleted") {
-      mesh.scale.x = 1;
-      mesh.scale.z = 1;
       progressRef.current = Math.min(1, progressRef.current + delta * 2.4);
       const scale = Math.max(0.03, 1 - progressRef.current);
-      mesh.scale.y = scale;
+      mesh.scale.set(1, scale, 1);
+      mesh.position.x = building.x;
+      mesh.position.z = building.z;
       mesh.position.y = (height * scale) / 2;
       material.opacity = Math.max(0.08, 1 - progressRef.current);
       material.transparent = true;
@@ -90,26 +108,41 @@ export default function BuildingMesh({
       return;
     }
 
-    mesh.scale.y = 1;
+    if (changeKind === "modified") {
+      progressRef.current = Math.min(1, progressRef.current + delta * 2.8);
+      const t = 1 - Math.pow(1 - progressRef.current, 3);
+      const displayHeight = previousHeight + (height - previousHeight) * t;
+      mesh.scale.set(1, displayHeight / Math.max(height, 0.01), 1);
+      mesh.position.x = building.x;
+      mesh.position.z = building.z;
+      mesh.position.y = displayHeight / 2;
+      material.opacity = 1;
+      material.transparent = false;
+      material.emissiveIntensity =
+        0.22 + (Math.sin(state.clock.elapsedTime * 10) + 1) * 0.26 * (1 - t * 0.7);
+      return;
+    }
+
+    if (changeKind === "renamed") {
+      progressRef.current = Math.min(1, progressRef.current + delta * 1.9);
+      const t = 1 - Math.pow(1 - progressRef.current, 3);
+      mesh.scale.set(1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.012, 1, 1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.012);
+      const fromX = building.from_x ?? building.x;
+      const fromZ = building.from_z ?? building.z;
+      mesh.position.x = fromX + (building.x - fromX) * t;
+      mesh.position.z = fromZ + (building.z - fromZ) * t;
+      mesh.position.y = height / 2;
+      material.emissiveIntensity = 0.38 * (1 - t * 0.45);
+      return;
+    }
+
+    mesh.scale.set(1, 1, 1);
+    mesh.position.x = building.x;
+    mesh.position.z = building.z;
     mesh.position.y = height / 2;
     material.opacity = 1;
     material.transparent = false;
-
-    if (changeKind === "modified") {
-      mesh.scale.x = 1;
-      mesh.scale.z = 1;
-      material.emissiveIntensity =
-        0.22 + (Math.sin(state.clock.elapsedTime * 10) + 1) * 0.26;
-    } else if (changeKind === "renamed") {
-      const pulse = 1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.025;
-      mesh.scale.x = pulse;
-      mesh.scale.z = pulse;
-      material.emissiveIntensity = 0.38;
-    } else {
-      mesh.scale.x = 1;
-      mesh.scale.z = 1;
-      material.emissiveIntensity = 0.02;
-    }
+    material.emissiveIntensity = 0.02;
   });
 
   const normalColor =
