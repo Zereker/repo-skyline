@@ -57,7 +57,7 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
 
     let (mut commits, authors) = parse_log(&log)?;
     enrich_changes(path, &mut commits)?;
-    let files = build_file_records(path, &commits);
+    let files = build_file_records(&commits);
     let releases = parse_releases(path, &commits)?;
 
     Ok(RepositoryHistory {
@@ -315,7 +315,7 @@ fn parse_numstat(output: &str) -> Vec<(u64, u64, String)> {
 
 fn find_numstat(change: &FileChange, stats: &[(u64, u64, String)]) -> Option<(u64, u64)> {
     stats.iter().find_map(|(additions, deletions, path)| {
-        let normalized = path.replace('{', "").replace('}', "");
+        let normalized = path.replace(['{', '}'], "");
         let candidates = normalized.split(" => ").map(str::trim).collect::<Vec<_>>();
 
         let matches = candidates.iter().any(|candidate| {
@@ -330,12 +330,12 @@ fn find_numstat(change: &FileChange, stats: &[(u64, u64, String)]) -> Option<(u6
     })
 }
 
-fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRecord> {
+fn build_file_records(commits: &[CommitRecord]) -> Vec<FileRecord> {
     let mut files: BTreeMap<String, FileAccumulator> = BTreeMap::new();
 
     for (commit_index, commit) in commits.iter().enumerate() {
         for change in &commit.changes {
-            let lines = change.lines_after.unwrap_or(0) as u64;
+            let lines = change.lines_after.unwrap_or(0);
             match change.kind {
                 ChangeKind::Added | ChangeKind::Modified => {
                     let entry =
