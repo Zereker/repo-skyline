@@ -5,13 +5,14 @@ import type { Mesh, MeshStandardMaterial } from "three";
 import { Vector3 } from "three";
 import BuildingMesh from "./BuildingMesh";
 import type { PlacedBuilding, PlacedDistrict } from "./cityLayout";
-import type { CityEventKind } from "./types";
+import type { CityEventKind, CityRoad } from "./types";
 
 type ViewMode = "district" | "territory";
 
 type Props = {
   districts: PlacedDistrict[];
   activeChanges: Map<string, CityEventKind>;
+  roads?: CityRoad[];
   commitId?: string;
   releaseNames?: string[];
   viewMode: ViewMode;
@@ -23,6 +24,7 @@ type Props = {
 export default function CityScene({
   districts,
   activeChanges,
+  roads = [],
   commitId,
   releaseNames = [],
   viewMode,
@@ -98,28 +100,28 @@ export default function CityScene({
 
       segments.push(
         {
-          id: `${district.path}:top`,
+          id: \`\${district.path}:top\`,
           x: district.x,
           z: district.z - roadOffsetZ,
           width: district.width,
           depth: 0.42,
         },
         {
-          id: `${district.path}:bottom`,
+          id: \`\${district.path}:bottom\`,
           x: district.x,
           z: district.z + roadOffsetZ,
           width: district.width,
           depth: 0.42,
         },
         {
-          id: `${district.path}:left`,
+          id: \`\${district.path}:left\`,
           x: district.x - roadOffsetX,
           z: district.z,
           width: 0.42,
           depth: district.depth,
         },
         {
-          id: `${district.path}:right`,
+          id: \`\${district.path}:right\`,
           x: district.x + roadOffsetX,
           z: district.z,
           width: 0.42,
@@ -146,7 +148,7 @@ export default function CityScene({
         const gap = to.x - from.x - from.width / 2 - to.width / 2;
         if (gap > 0.8) {
           segments.push({
-            id: `link-x:${from.path}:${to.path}`,
+            id: \`link-x:\${from.path}:\${to.path}\`,
             x: (from.x + to.x) / 2,
             z: (from.z + to.z) / 2,
             width: gap,
@@ -164,7 +166,7 @@ export default function CityScene({
         const gap = to.z - from.z - from.depth / 2 - to.depth / 2;
         if (gap > 0.8) {
           segments.push({
-            id: `link-z:${from.path}:${to.path}`,
+            id: \`link-z:\${from.path}:\${to.path}\`,
             x: (from.x + to.x) / 2,
             z: (from.z + to.z) / 2,
             width: 0.5,
@@ -176,6 +178,35 @@ export default function CityScene({
 
     return segments;
   }, [districts]);
+
+  const cochangeRoads = useMemo(() => {
+    const buildings = new Map<string, PlacedBuilding>();
+    for (const district of districts) {
+      for (const building of district.buildings) buildings.set(building.id, building);
+    }
+
+    return roads
+      .map((road) => {
+        const from = buildings.get(road.from);
+        const to = buildings.get(road.to);
+        if (!from || !to) return null;
+
+        const dx = to.x - from.x;
+        const dz = to.z - from.z;
+        const length = Math.hypot(dx, dz);
+        if (length < 0.5) return null;
+
+        return {
+          ...road,
+          from,
+          to,
+          length,
+          angle: Math.atan2(dz, dx),
+        };
+      })
+      .filter((road): road is NonNullable<typeof road> => road !== null)
+      .slice(0, 80);
+  }, [districts, roads]);
 
   useEffect(() => {
     rippleProgressRef.current = releaseNames.length > 0 ? 0 : 2;
@@ -272,6 +303,30 @@ export default function CityScene({
             />
           </mesh>
         </group>
+      ))}
+
+      {cochangeRoads.map((road) => (
+        <mesh
+          key={\`\${road.from.id}:\${road.to.id}\`}
+          position={[
+            (road.from.x + road.to.x) / 2,
+            0.18,
+            (road.from.z + road.to.z) / 2,
+          ]}
+          rotation={[0, -road.angle, 0]}
+        >
+          <boxGeometry
+            args={[road.length, 0.045, 0.08 + Math.min(0.18, road.weight * 0.025)]}
+          />
+          <meshStandardMaterial
+            color="#3f6f9f"
+            emissive="#274e78"
+            emissiveIntensity={0.35 + Math.min(0.5, road.weight * 0.06)}
+            transparent
+            opacity={0.38 + Math.min(0.38, road.weight * 0.05)}
+            roughness={0.7}
+          />
+        </mesh>
       ))}
 
       {districts.map((district) => (
