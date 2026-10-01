@@ -6,6 +6,7 @@ pub struct RepositoryHistory {
     pub commits: Vec<CommitRecord>,
     pub files: Vec<FileRecord>,
     pub authors: Vec<AuthorRecord>,
+    pub releases: Vec<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,4 +77,11 @@ pub struct AuthorRecord {
     pub commit_count: u32,
     pub first_commit_at: i64,
     pub last_commit_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseRecord {
+    pub name: String,
+    pub commit_id: String,
+    pub timestamp: i64,
 }
