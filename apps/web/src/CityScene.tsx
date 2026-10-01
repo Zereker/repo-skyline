@@ -1,4 +1,7 @@
 import { Billboard, OrbitControls, Text } from "@react-three/drei";
+import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useMemo } from "react";
+import { Vector3 } from "three";
 import BuildingMesh from "./BuildingMesh";
 import type { PlacedBuilding, PlacedDistrict } from "./cityLayout";
 import type { CityEventKind } from "./types";
@@ -11,6 +14,8 @@ type Props = {
   commitId?: string;
   viewMode: ViewMode;
   onSelect: (building: PlacedBuilding) => void;
+  cinematic?: boolean;
+  focusPath?: string | null;
 };
 
 export default function CityScene({
@@ -19,7 +24,34 @@ export default function CityScene({
   commitId,
   viewMode,
   onSelect,
+  cinematic = false,
+  focusPath = null,
 }: Props) {
+  const { camera } = useThree();
+  const target = useMemo(() => new Vector3(), []);
+  const desired = useMemo(() => new Vector3(), []);
+
+  useEffect(() => {
+    const focus = districts
+      .flatMap((district) => district.buildings)
+      .find((building) => building.path === focusPath);
+
+    const fallback = districts[0];
+    const x = focus?.x ?? fallback?.x ?? 0;
+    const z = focus?.z ?? fallback?.z ?? 0;
+
+    target.set(x, 0, z);
+    desired.set(x + 11, 12, z + 13);
+  }, [districts, focusPath, target, desired]);
+
+  useFrame((_, delta) => {
+    if (!cinematic) return;
+
+    const smoothing = 1 - Math.pow(0.001, delta);
+    camera.position.lerp(desired, smoothing);
+    camera.lookAt(target);
+  });
+
   return (
     <>
       <ambientLight intensity={1.7} />
@@ -67,6 +99,7 @@ export default function CityScene({
 
       <OrbitControls
         makeDefault
+        enabled={!cinematic}
         enableDamping
         minDistance={8}
         maxDistance={100}
