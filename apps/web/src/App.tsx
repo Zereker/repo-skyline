@@ -65,15 +65,10 @@ export default function App() {
   }, []);
 
   const currentCommit = city.timeline[commitIndex] ?? null;
-  const currentTimestamp =
-    currentCommit?.timestamp ??
-    city.timeline.at(-1)?.timestamp ??
-    Number.MAX_SAFE_INTEGER;
-
   const stableDistricts = useMemo(() => layoutCity(city), [city]);
   const activeDistricts = useMemo(
-    () => activeDistrictsAt(stableDistricts, currentTimestamp),
-    [stableDistricts, currentTimestamp],
+    () => activeDistrictsAt(stableDistricts, commitIndex),
+    [stableDistricts, commitIndex],
   );
 
   const activeChanges = useMemo(() => {
@@ -119,6 +114,23 @@ export default function App() {
   const currentDate = currentCommit
     ? new Date(currentCommit.timestamp * 1000).toLocaleString()
     : "No commit history";
+
+  const currentStats = useMemo(() => ({
+    additions: (currentCommit?.changes ?? []).reduce((sum, change) => sum + change.additions, 0),
+    deletions: (currentCommit?.changes ?? []).reduce((sum, change) => sum + change.deletions, 0),
+  }), [currentCommit]);
+
+  const selectedRecentActivity = selected
+    ? (selected.history ?? [])
+        .filter((snapshot) => snapshot.commit_index <= commitIndex)
+        .slice(-5)
+        .reverse()
+    : [];
+
+  const selectedStatus =
+    selected && selected.deleted_at != null && currentCommit
+      ? currentCommit.timestamp >= selected.deleted_at ? "Demolished" : "Active"
+      : "Active";
 
   const activeDistrictModels: District[] = activeDistricts.map((district) => ({
     path: district.path,
@@ -271,6 +283,7 @@ export default function App() {
             <CityScene
               districts={activeDistricts}
               activeChanges={activeChanges}
+              roads={city.roads ?? []}
               commitId={currentCommit?.id}
               releaseNames={currentCommit?.releases ?? []}
               viewMode={viewMode}
@@ -299,6 +312,7 @@ export default function App() {
             <span><i className="legend-dot deleted" />Deleted</span>
             <span><i className="legend-dot renamed" />Renamed</span>
             <span className="hotspot-legend"><i className="legend-dot hotspot" />Hotspot</span>
+            <span className="road-legend"><i className="legend-dot road" />Co-change</span>
           </div>
 
           {storyPlaying && activeStoryMilestone ? (
@@ -324,22 +338,63 @@ export default function App() {
 
               <dl>
                 <div>
+                  <dt>Status</dt>
+                  <dd>{selectedStatus}</dd>
+                </div>
+                <div>
                   <dt>District</dt>
                   <dd>{selected.district}</dd>
                 </div>
                 <div>
-                  <dt>Lines</dt>
+                  <dt>Lines at commit</dt>
                   <dd>{selected.lines}</dd>
                 </div>
                 <div>
-                  <dt>Commits</dt>
+                  <dt>Total commits</dt>
                   <dd>{selected.commits}</dd>
+                </div>
+                <div>
+                  <dt>Insertions</dt>
+                  <dd>+{selected.additions ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Deletions</dt>
+                  <dd>-{selected.deletions ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Contributors</dt>
+                  <dd>{selected.contributor_count ?? 1}</dd>
                 </div>
                 <div>
                   <dt>Primary author</dt>
                   <dd>{selected.primary_author ?? "Unknown"}</dd>
                 </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{new Date(selected.created_at * 1000).toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt>Last modified</dt>
+                  <dd>{selected.last_modified_at ? new Date(selected.last_modified_at * 1000).toLocaleString() : "Unknown"}</dd>
+                </div>
               </dl>
+
+              <section className="recent-activity">
+                <p className="panel-label">Recent activity</p>
+                {selectedRecentActivity.length === 0 ? (
+                  <p className="empty">No historical snapshots in this sample.</p>
+                ) : (
+                  <div className="activity-list">
+                    {selectedRecentActivity.map((snapshot) => (
+                      <div className="activity-row" key={snapshot.commit_id}>
+                        <span className={`activity-kind ${snapshot.kind}`}>{snapshot.kind}</span>
+                        <span>{snapshot.lines} LOC</span>
+                        <small>+{snapshot.additions} / -{snapshot.deletions}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             </>
           ) : (
             <p className="empty">Select a building in the city.</p>
@@ -383,6 +438,10 @@ export default function App() {
                   ? `${currentCommit.author} · ${currentDate} · ${currentCommit.id.slice(0, 8)}`
                   : currentDate}
               </p>
+              <div className="commit-delta">
+                <span>+{currentStats.additions}</span>
+                <span>-{currentStats.deletions}</span>
+              </div>
               {currentCommit?.releases.length ? (
                 <div className="release-badges">
                   {currentCommit.releases.map((release) => (
