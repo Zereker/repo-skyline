@@ -182,7 +182,11 @@ fn derive_milestones(
         });
     }
 
-    if let Some(author) = history.authors.iter().max_by_key(|author| author.commit_count) {
+    if let Some(author) = history
+        .authors
+        .iter()
+        .max_by_key(|author| author.commit_count)
+    {
         if author.commit_count >= 3 {
             if let Some(commit) = timeline.iter().find(|commit| commit.author == author.name) {
                 milestones.push(StoryMilestone {
