@@ -11,6 +11,7 @@ type Props = {
   changeKind?: CityEventKind;
   commitId?: string;
   viewMode: ViewMode;
+  hotspot?: boolean;
   onSelect: (building: PlacedBuilding) => void;
 };
 
@@ -32,6 +33,7 @@ export default function BuildingMesh({
   changeKind,
   commitId,
   viewMode,
+  hotspot = false,
   onSelect,
 }: Props) {
   const meshRef = useRef<Mesh>(null);
@@ -140,6 +142,26 @@ export default function BuildingMesh({
         roughness={0.68}
         metalness={0.08}
       />
+      {hotspot ? (
+        <>
+          <mesh position={[0, height / 2 + 0.055, 0]}>
+            <cylinderGeometry args={[0.24, 0.24, 0.08, 12]} />
+            <meshStandardMaterial
+              color="#ff9f43"
+              emissive="#ff9f43"
+              emissiveIntensity={0.9}
+              roughness={0.45}
+            />
+          </mesh>
+          <pointLight
+            position={[0, height / 2 + 0.3, 0]}
+            color="#ffb45c"
+            intensity={0.45}
+            distance={3.2}
+            decay={2}
+          />
+        </>
+      ) : null}
     </mesh>
   );
 }
