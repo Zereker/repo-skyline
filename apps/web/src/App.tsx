@@ -240,7 +240,7 @@ export default function App() {
                       <i>
                         <b
                           style={{
-                            width: \`${share}%\`,
+                            width: `${share}%`,
                             background: colorForContributor(author),
                           }}
                         />
