@@ -104,14 +104,15 @@ export function activeDistrictsAt(
 
   for (const sourceDistrict of districts) {
     for (const building of sourceDistrict.buildings) {
-      const snapshot = [...building.history]
+      const history = building.history ?? [];
+      const snapshot = [...history]
         .filter((item) => item.commit_index <= commitIndex)
         .sort((a, b) => a.commit_index - b.commit_index)
         .at(-1);
 
       if (!snapshot) continue;
 
-      const previous = [...building.history]
+      const previous = [...history]
         .filter((item) => item.commit_index < snapshot.commit_index)
         .sort((a, b) => a.commit_index - b.commit_index)
         .at(-1);
