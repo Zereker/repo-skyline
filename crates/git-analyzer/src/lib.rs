@@ -3,11 +3,7 @@ use repository_model::{
     AuthorContribution, AuthorRecord, ChangeKind, CommitRecord, FileChange, FileRecord,
     ReleaseRecord, RepositoryHistory, RepositoryMeta,
 };
-use std::{
-    collections::BTreeMap,
-    path::Path,
-    process::Command,
-};
+use std::{collections::BTreeMap, path::Path, process::Command};
 
 const FIELD_SEP: char = '\x1f';
 const COMMIT_PREFIX: &str = "@@COMMIT";
@@ -269,20 +265,21 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
         for change in &commit.changes {
             match change.kind {
                 ChangeKind::Added | ChangeKind::Modified => {
-                    let entry = files.entry(change.path.clone()).or_insert_with(|| {
-                        FileAccumulator {
-                            id: change.path.clone(),
-                            path: change.path.clone(),
-                            directory: directory_of(&change.path),
-                            created_at: commit.timestamp,
-                            deleted_at: None,
-                            last_modified_at: commit.timestamp,
-                            commit_count: 0,
-                            additions: 0,
-                            deletions: 0,
-                            authors: BTreeMap::new(),
-                        }
-                    });
+                    let entry =
+                        files
+                            .entry(change.path.clone())
+                            .or_insert_with(|| FileAccumulator {
+                                id: change.path.clone(),
+                                path: change.path.clone(),
+                                directory: directory_of(&change.path),
+                                created_at: commit.timestamp,
+                                deleted_at: None,
+                                last_modified_at: commit.timestamp,
+                                commit_count: 0,
+                                additions: 0,
+                                deletions: 0,
+                                authors: BTreeMap::new(),
+                            });
 
                     entry.deleted_at = None;
                     entry.last_modified_at = commit.timestamp;
