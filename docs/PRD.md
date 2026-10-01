@@ -382,7 +382,11 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 - Co-change roads：由真实 Commit 共变关系生成
 - Story milestones：100 / 1000 commit、最大模块、最活跃月份、Ownership transition
 
-## 16. 一句话介绍
+## 16. 验证状态
+
+History Accuracy phase implementation is under CI validation; formatting and browser build issues are fixed on the verification branch.
+
+## 17. 一句话介绍
 
 **Repo Skyline turns Git history into a living city.**
 
