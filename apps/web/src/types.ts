@@ -91,5 +91,5 @@ export type CityProject = {
   timeline: TimelineCommit[];
   releases: ReleaseMarker[];
   milestones: StoryMilestone[];
-  roads: CityRoad[];
+  roads?: CityRoad[];
 };
