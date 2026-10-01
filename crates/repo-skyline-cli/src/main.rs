@@ -41,7 +41,10 @@ fn main() -> Result<()> {
 
             let json = serde_json::to_string_pretty(&city)?;
 
-            if let Some(parent) = output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+            if let Some(parent) = output
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
                 fs::create_dir_all(parent)?;
             }
 
@@ -87,8 +90,11 @@ fn limit_buildings(city: &mut city_model::CityProject, limit: usize) {
         .collect::<HashSet<_>>();
 
     for district in &mut city.districts {
-        district.buildings.retain(|building| keep.contains(&building.id));
+        district
+            .buildings
+            .retain(|building| keep.contains(&building.id));
     }
 
-    city.districts.retain(|district| !district.buildings.is_empty());
+    city.districts
+        .retain(|district| !district.buildings.is_empty());
 }
