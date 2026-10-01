@@ -196,6 +196,12 @@ pub struct FileChange {
 每个文件不仅需要当前状态，还需要生命周期。
 
 ```rust
+pub struct ReleaseRecord {
+    pub name: String,
+    pub commit_id: String,
+    pub timestamp: i64,
+}
+
 pub struct FileRecord {
     pub id: String,
     pub path: String,
@@ -587,7 +593,23 @@ MVP：
 
 ---
 
-## 17. Animation
+## 17. Releases and Story Mode
+
+Git tags are resolved to their underlying commit and exposed as release markers on the timeline.
+
+The city projection also derives a bounded set of story milestones:
+
+- First commit
+- Major contributor
+- Largest construction wave
+- Largest refactor / urban renewal
+- Recent representative releases
+
+Story Mode maps each milestone back to its commit, jumps the timeline, and drives a cinematic camera toward the first changed building in that commit.
+
+This keeps the demo data-driven: the presentation is generated from Git history instead of a hand-authored animation script.
+
+## 18. Animation
 
 Commit 事件视觉：
 
@@ -624,7 +646,7 @@ height = 0
 
 ---
 
-## 18. 色彩策略
+## 19. 色彩策略
 
 MVP 默认：
 
@@ -648,7 +670,7 @@ recent commit frequency -> intensity
 
 ---
 
-## 19. CLI
+## 20. CLI
 
 建议新增：
 
@@ -678,7 +700,7 @@ npm run dev
 
 ---
 
-## 20. 第一阶段 API
+## 21. 第一阶段 API
 
 Rust：
 
@@ -712,7 +734,7 @@ City projection
 
 ---
 
-## 21. 推荐 Domain Layer
+## 22. 推荐 Domain Layer
 
 ```text
 git-analyzer
@@ -754,7 +776,7 @@ city-model
 
 ---
 
-## 22. 性能目标
+## 23. 性能目标
 
 Hackathon MVP：
 
@@ -774,7 +796,7 @@ Linux Kernel 不作为 MVP 性能基准。
 
 ---
 
-## 23. 缓存
+## 24. 缓存
 
 分析结果输出 JSON。
 
@@ -796,7 +818,7 @@ Linux Kernel 不作为 MVP 性能基准。
 
 ---
 
-## 24. 错误处理
+## 25. 错误处理
 
 需要明确处理：
 
@@ -819,7 +841,7 @@ skip + warning。
 
 ---
 
-## 25. Merge Commit
+## 26. Merge Commit
 
 MVP：
 
@@ -839,7 +861,7 @@ Merge Commit 导致已经存在的文件被重复计算。
 
 ---
 
-## 26. Testing
+## 27. Testing
 
 ### Rust Unit Tests
 
@@ -868,7 +890,7 @@ commit 5: delete a.rs
 
 ---
 
-## 27. CI
+## 28. CI
 
 GitHub Actions：
 
@@ -889,7 +911,7 @@ npm run build
 
 ---
 
-## 28. 下一步实施顺序
+## 29. 下一步实施顺序
 
 ### Phase 1 — Domain Model
 
@@ -958,7 +980,7 @@ examples/demo.json
 
 ---
 
-## 29. 当前最重要的架构决策
+## 30. 当前最重要的架构决策
 
 **不要让 git-analyzer 直接返回 City。**
 
@@ -980,7 +1002,7 @@ CityProject
 
 ---
 
-## 30. 技术里程碑
+## 31. 技术里程碑
 
 ### M1
 
@@ -1012,7 +1034,7 @@ Contributor View + Hackathon Demo。
 
 ---
 
-## 31. 最终技术原则
+## 32. 最终技术原则
 
 Repo Skyline 应坚持：
 
