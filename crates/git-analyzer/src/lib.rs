@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use repository_model::{
     AuthorContribution, AuthorRecord, ChangeKind, CommitRecord, FileChange, FileRecord,
-    RepositoryHistory, RepositoryMeta,
+    ReleaseRecord, RepositoryHistory, RepositoryMeta,
 };
 use std::{
     collections::BTreeMap,
@@ -60,6 +60,7 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
 
     let (commits, authors) = parse_log(&log)?;
     let files = build_file_records(path, &commits);
+    let releases = parse_releases(path, &commits)?;
 
     Ok(RepositoryHistory {
         repository: RepositoryMeta {
@@ -71,7 +72,59 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
         commits,
         files,
         authors,
+        releases,
     })
+}
+
+fn parse_releases(path: &Path, commits: &[CommitRecord]) -> Result<Vec<ReleaseRecord>> {
+    let tags = run_git(
+        path,
+        &[
+            "for-each-ref",
+            "--sort=creatordate",
+            "--format=%(refname:strip=2)%x1f%(objectname)%x1f%(creatordate:unix)",
+            "refs/tags",
+        ],
+    )?;
+
+    let mut releases = Vec::new();
+
+    for line in tags.lines() {
+        let fields = line.split(FIELD_SEP).collect::<Vec<_>>();
+        if fields.len() < 3 {
+            continue;
+        }
+
+        let name = fields[0].trim();
+        let object = fields[1].trim();
+        let timestamp = fields[2].trim().parse::<i64>().unwrap_or(0);
+
+        if name.is_empty() || object.is_empty() {
+            continue;
+        }
+
+        let commit_id = run_git(path, &["rev-list", "-1", object])
+            .unwrap_or_else(|_| object.to_string())
+            .trim()
+            .to_string();
+
+        let timestamp = commits
+            .iter()
+            .find(|commit| commit.id == commit_id)
+            .map(|commit| commit.timestamp)
+            .unwrap_or(timestamp);
+
+        releases.push(ReleaseRecord {
+            name: name.to_string(),
+            commit_id,
+            timestamp,
+        });
+    }
+
+    releases.sort_by_key(|release| release.timestamp);
+    releases.dedup_by(|a, b| a.name == b.name && a.commit_id == b.commit_id);
+
+    Ok(releases)
 }
 
 fn parse_log(log: &str) -> Result<(Vec<CommitRecord>, Vec<AuthorRecord>)> {
