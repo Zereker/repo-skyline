@@ -106,24 +106,27 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
     let mut grouped: BTreeMap<String, Vec<Building>> = BTreeMap::new();
 
     for file in &history.files {
-        grouped.entry(file.directory.clone()).or_default().push(Building {
-            id: file.id.clone(),
-            path: file.path.clone(),
-            lines: file.current_lines,
-            commits: file.commit_count,
-            additions: file.additions,
-            deletions: file.deletions,
-            contributor_count: file.authors.len() as u32,
-            primary_author: file
-                .authors
-                .iter()
-                .max_by_key(|contribution| contribution.commits)
-                .map(|contribution| contribution.author_id.clone()),
-            created_at: file.created_at,
-            deleted_at: file.deleted_at,
-            last_modified_at: file.last_modified_at,
-            history: file.history.clone(),
-        });
+        grouped
+            .entry(file.directory.clone())
+            .or_default()
+            .push(Building {
+                id: file.id.clone(),
+                path: file.path.clone(),
+                lines: file.current_lines,
+                commits: file.commit_count,
+                additions: file.additions,
+                deletions: file.deletions,
+                contributor_count: file.authors.len() as u32,
+                primary_author: file
+                    .authors
+                    .iter()
+                    .max_by_key(|contribution| contribution.commits)
+                    .map(|contribution| contribution.author_id.clone()),
+                created_at: file.created_at,
+                deleted_at: file.deleted_at,
+                last_modified_at: file.last_modified_at,
+                history: file.history.clone(),
+            });
 
         for snapshot in &file.history {
             grouped.entry(directory_of(&snapshot.path)).or_default();
@@ -412,7 +415,9 @@ fn derive_milestones(
     for commit in &history.commits {
         for change in &commit.changes {
             if let Some(file) = history.files.iter().find(|file| {
-                file.history.iter().any(|snapshot| snapshot.path == change.path)
+                file.history
+                    .iter()
+                    .any(|snapshot| snapshot.path == change.path)
             }) {
                 if let Some(previous) = file
                     .history
