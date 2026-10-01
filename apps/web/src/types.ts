@@ -27,10 +27,35 @@ export type TimelineCommit = {
   author: string;
   message: string;
   changes: CityEvent[];
+  releases: string[];
+};
+
+export type ReleaseMarker = {
+  name: string;
+  commit_id: string;
+  timestamp: number;
+};
+
+export type StoryMilestoneKind =
+  | "first_commit"
+  | "first_major_contributor"
+  | "largest_change"
+  | "largest_refactor"
+  | "release";
+
+export type StoryMilestone = {
+  id: string;
+  kind: StoryMilestoneKind;
+  title: string;
+  description: string;
+  commit_id: string;
+  timestamp: number;
 };
 
 export type CityProject = {
   repository: string;
   districts: District[];
   timeline: TimelineCommit[];
+  releases: ReleaseMarker[];
+  milestones: StoryMilestone[];
 };
