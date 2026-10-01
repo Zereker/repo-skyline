@@ -297,6 +297,7 @@ export default function App() {
             <span><i className="legend-dot modified" />Modified</span>
             <span><i className="legend-dot deleted" />Deleted</span>
             <span><i className="legend-dot renamed" />Renamed</span>
+            <span className="hotspot-legend"><i className="legend-dot hotspot" />Hotspot</span>
           </div>
 
           {storyPlaying && activeStoryMilestone ? (
