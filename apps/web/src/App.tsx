@@ -272,6 +272,7 @@ export default function App() {
               districts={activeDistricts}
               activeChanges={activeChanges}
               commitId={currentCommit?.id}
+              releaseNames={currentCommit?.releases ?? []}
               viewMode={viewMode}
               onSelect={setSelected}
               cinematic={storyPlaying}
