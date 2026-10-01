@@ -226,16 +226,30 @@ export default function App() {
 
           {viewMode === "territory" ? (
             <div className="territory-list">
-              {contributorTerritories.map(([author, count]) => (
-                <div className="territory-row" key={author}>
-                  <span
-                    className="territory-swatch"
-                    style={{ background: colorForContributor(author) }}
-                  />
-                  <span title={author}>{author}</span>
-                  <strong>{count}</strong>
-                </div>
-              ))}
+              {contributorTerritories.map(([author, count]) => {
+                const share = totalBuildings > 0 ? Math.round((count / totalBuildings) * 100) : 0;
+
+                return (
+                  <div className="territory-row" key={author}>
+                    <span
+                      className="territory-swatch"
+                      style={{ background: colorForContributor(author) }}
+                    />
+                    <span className="territory-copy">
+                      <span title={author}>{author}</span>
+                      <i>
+                        <b
+                          style={{
+                            width: \`${share}%\`,
+                            background: colorForContributor(author),
+                          }}
+                        />
+                      </i>
+                    </span>
+                    <strong>{share}%</strong>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             activeDistrictModels.map((district) => (
@@ -248,7 +262,11 @@ export default function App() {
         </aside>
 
         <div className="canvas-wrap">
-          <Canvas camera={{ position: [22, 24, 28], fov: 44 }}>
+          <Canvas
+            camera={{ position: [30, 28, 34], fov: 44 }}
+            shadows
+            dpr={[1, 1.75]}
+          >
             <color attach="background" args={["#080d18"]} />
             <CityScene
               districts={activeDistricts}
@@ -260,6 +278,19 @@ export default function App() {
               focusPath={storyFocusPath}
             />
           </Canvas>
+
+          <div className="city-hud">
+            <span className="city-hud-live">
+              <i />
+              LIVE CITY
+            </span>
+            <strong>{currentCommit?.message ?? "No commit history"}</strong>
+            <small>
+              {currentCommit
+                ? `${currentCommit.author} · ${currentDate} · ${currentCommit.id.slice(0, 8)}`
+                : "Waiting for repository history"}
+            </small>
+          </div>
 
           <div className="legend">
             <span><i className="legend-dot added" />Added</span>
