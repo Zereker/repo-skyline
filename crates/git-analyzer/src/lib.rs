@@ -316,10 +316,7 @@ fn parse_numstat(output: &str) -> Vec<(u64, u64, String)> {
 fn find_numstat(change: &FileChange, stats: &[(u64, u64, String)]) -> Option<(u64, u64)> {
     stats.iter().find_map(|(additions, deletions, path)| {
         let normalized = path.replace('{', "").replace('}', "");
-        let candidates = normalized
-            .split(" => ")
-            .map(str::trim)
-            .collect::<Vec<_>>();
+        let candidates = normalized.split(" => ").map(str::trim).collect::<Vec<_>>();
 
         let matches = candidates.iter().any(|candidate| {
             *candidate == change.path
@@ -341,19 +338,22 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
             let lines = change.lines_after.unwrap_or(0) as u64;
             match change.kind {
                 ChangeKind::Added | ChangeKind::Modified => {
-                    let entry = files.entry(change.path.clone()).or_insert_with(|| FileAccumulator {
-                        id: change.path.clone(),
-                        path: change.path.clone(),
-                        directory: directory_of(&change.path),
-                        created_at: commit.timestamp,
-                        deleted_at: None,
-                        last_modified_at: commit.timestamp,
-                        commit_count: 0,
-                        additions: 0,
-                        deletions: 0,
-                        authors: BTreeMap::new(),
-                        history: Vec::new(),
-                    });
+                    let entry =
+                        files
+                            .entry(change.path.clone())
+                            .or_insert_with(|| FileAccumulator {
+                                id: change.path.clone(),
+                                path: change.path.clone(),
+                                directory: directory_of(&change.path),
+                                created_at: commit.timestamp,
+                                deleted_at: None,
+                                last_modified_at: commit.timestamp,
+                                commit_count: 0,
+                                additions: 0,
+                                deletions: 0,
+                                authors: BTreeMap::new(),
+                                history: Vec::new(),
+                            });
 
                     if change.kind == ChangeKind::Added && entry.deleted_at.is_some() {
                         entry.created_at = commit.timestamp;
@@ -364,7 +364,12 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
                     entry.commit_count += 1;
                     entry.additions += change.additions as u64;
                     entry.deletions += change.deletions as u64;
-                    apply_author(entry, commit, change.additions as u64, change.deletions as u64);
+                    apply_author(
+                        entry,
+                        commit,
+                        change.additions as u64,
+                        change.deletions as u64,
+                    );
                     entry.history.push(FileSnapshot {
                         commit_id: commit.id.clone(),
                         commit_index,
@@ -384,7 +389,12 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
                         entry.commit_count += 1;
                         entry.additions += change.additions as u64;
                         entry.deletions += change.deletions as u64;
-                        apply_author(entry, commit, change.additions as u64, change.deletions as u64);
+                        apply_author(
+                            entry,
+                            commit,
+                            change.additions as u64,
+                            change.deletions as u64,
+                        );
                         entry.history.push(FileSnapshot {
                             commit_id: commit.id.clone(),
                             commit_index,
@@ -408,7 +418,12 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
                         entry.commit_count += 1;
                         entry.additions += change.additions as u64;
                         entry.deletions += change.deletions as u64;
-                        apply_author(&mut entry, commit, change.additions as u64, change.deletions as u64);
+                        apply_author(
+                            &mut entry,
+                            commit,
+                            change.additions as u64,
+                            change.deletions as u64,
+                        );
                         entry.history.push(FileSnapshot {
                             commit_id: commit.id.clone(),
                             commit_index,
@@ -435,7 +450,12 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
                             authors: BTreeMap::new(),
                             history: Vec::new(),
                         };
-                        apply_author(&mut entry, commit, change.additions as u64, change.deletions as u64);
+                        apply_author(
+                            &mut entry,
+                            commit,
+                            change.additions as u64,
+                            change.deletions as u64,
+                        );
                         entry.history.push(FileSnapshot {
                             commit_id: commit.id.clone(),
                             commit_index,
@@ -467,7 +487,10 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
             additions: file.additions,
             deletions: file.deletions,
             current_lines: if file.deleted_at.is_none() {
-                file.history.last().map(|snapshot| snapshot.lines).unwrap_or(0)
+                file.history
+                    .last()
+                    .map(|snapshot| snapshot.lines)
+                    .unwrap_or(0)
             } else {
                 0
             },
@@ -477,12 +500,7 @@ fn build_file_records(repo_path: &Path, commits: &[CommitRecord]) -> Vec<FileRec
         .collect()
 }
 
-fn apply_author(
-    file: &mut FileAccumulator,
-    commit: &CommitRecord,
-    additions: u64,
-    deletions: u64,
-) {
+fn apply_author(file: &mut FileAccumulator, commit: &CommitRecord, additions: u64, deletions: u64) {
     file.authors
         .entry(commit.author_id.clone())
         .and_modify(|author| {
