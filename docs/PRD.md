@@ -243,7 +243,7 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 优先完成：
 
 - Contributor Color / Ownership
-- Release Marker
+- Release / Tag markers
 - Rename handling
 - Activity heatmap
 - Camera controls
@@ -251,14 +251,14 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 
 ### P2
 
-扩展能力：
+扩展能力（其中 Story Mode / Contributor Territory 已进入 MVP）：
 
 - Contributor Territory
 - Ownership Migration
 - Ghost District
 - Co-change Roads
 - Technical Debt View
-- Story Mode
+- Story Mode (implemented MVP)
 - AI vs Human View
 - Bug Crime Scene
 - Architecture Drift
@@ -356,7 +356,21 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 
 ---
 
-## 15. 一句话介绍
+## 15. 当前实现状态
+
+当前 Web MVP 已具备：
+
+- 建筑生长 / 修改脉冲 / 删除拆除动画
+- District 悬浮标签
+- 当前 Commit 文件变化列表
+- Contributor Territory 模式
+- Git Tag / Release Marker
+- 自动识别 First Commit / Major Contributor / Largest Change / Largest Refactor / Release
+- Story Mode 关键事件跳转与自动播放
+- Story Mode cinematic camera focus
+- 大型仓库 `--max-buildings` 演示保护
+
+## 16. 一句话介绍
 
 **Repo Skyline turns Git history into a living city.**
 
