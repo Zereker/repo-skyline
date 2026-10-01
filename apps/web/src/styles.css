@@ -316,6 +316,10 @@ h1 {
   align-items: center;
 }
 
+.legend span.hotspot-legend {
+  color: #c7d2e3;
+}
+
 .legend-dot {
   width: 8px;
   height: 8px;
@@ -338,6 +342,10 @@ h1 {
 
 .legend-dot.renamed {
   background: #c084fc;
+}
+
+.legend-dot.hotspot {
+  background: #ff9f43;
 }
 
 .hint {
@@ -608,6 +616,23 @@ dd {
   gap: 18px;
 }
 
+.story-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.story-progress {
+  padding: 7px 9px;
+  border: 1px solid #263752;
+  border-radius: 999px;
+  color: #7188a9;
+  background: #0d1727;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
 .story-heading h2 {
   margin: 0;
   font-size: 16px;
@@ -658,13 +683,25 @@ dd {
 }
 
 .story-step-copy strong,
-.story-step-copy small {
+.story-step-copy small,
+.story-step-copy em {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.story-step-copy em {
+  color: #607899;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .story-step-copy strong {
+  margin-top: 3px;
   font-size: 11px;
   white-space: nowrap;
 }
@@ -706,6 +743,17 @@ dd {
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.14em;
+}
+
+.cinematic-caption::after {
+  content: "";
+  display: block;
+  height: 2px;
+  margin: 12px auto 0;
+  width: 72px;
+  border-radius: 999px;
+  background: #75a7ff;
+  box-shadow: 0 0 18px rgba(117, 167, 255, 0.55);
 }
 
 .cinematic-caption strong {
