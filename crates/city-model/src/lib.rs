@@ -209,31 +209,51 @@ fn derive_milestones(
             id: "largest-change".to_string(),
             kind: StoryMilestoneKind::LargestChange,
             title: "Biggest construction wave".to_string(),
-            description: format!(
-                "{} files changed in one commit.",
-                largest.changes.len()
-            ),
+            description: format!("{} files changed in one commit.", largest.changes.len()),
             commit_id: largest.id.clone(),
             timestamp: largest.timestamp,
         });
     }
 
-    if let Some(refactor) = timeline.iter().find(|commit| {
-        commit.changes.iter().filter(|change| {
-            matches!(change.kind, CityEventKind::Renamed | CityEventKind::Deleted)
-        }).count() >= 2
-    }) {
+    if let Some(refactor) = timeline
+        .iter()
+        .filter_map(|commit| {
+            let score = commit
+                .changes
+                .iter()
+                .filter(|change| {
+                    matches!(change.kind, CityEventKind::Renamed | CityEventKind::Deleted)
+                })
+                .count();
+
+            (score >= 2).then_some((commit, score))
+        })
+        .max_by_key(|(_, score)| *score)
+        .map(|(commit, _)| commit)
+    {
         milestones.push(StoryMilestone {
             id: "largest-refactor".to_string(),
             kind: StoryMilestoneKind::LargestRefactor,
             title: "Urban renewal".to_string(),
-            description: "A commit moved or demolished multiple buildings.".to_string(),
+            description: format!(
+                "{} rename/delete events reshaped the city.",
+                refactor
+                    .changes
+                    .iter()
+                    .filter(|change| {
+                        matches!(change.kind, CityEventKind::Renamed | CityEventKind::Deleted)
+                    })
+                    .count()
+            ),
             commit_id: refactor.id.clone(),
             timestamp: refactor.timestamp,
         });
     }
 
-    for release in &history.releases {
+    let release_count = history.releases.len();
+    let release_start = release_count.saturating_sub(4);
+
+    for release in history.releases.iter().skip(release_start) {
         milestones.push(StoryMilestone {
             id: format!("release-{}", release.name),
             kind: StoryMilestoneKind::Release,
@@ -245,5 +265,6 @@ fn derive_milestones(
     }
 
     milestones.sort_by_key(|milestone| milestone.timestamp);
+    milestones.dedup_by(|a, b| a.commit_id == b.commit_id && a.kind as u8 == b.kind as u8);
     milestones
 }
