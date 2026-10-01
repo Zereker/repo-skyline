@@ -310,7 +310,11 @@ fn derive_milestones(
             id: "largest-change".to_string(),
             kind: StoryMilestoneKind::LargestChange,
             title: "Biggest construction wave".to_string(),
-            description: format!("{} files changed with {} line edits.", largest.changes.len(), delta),
+            description: format!(
+                "{} files changed with {} line edits.",
+                largest.changes.len(),
+                delta
+            ),
             commit_id: largest.id.clone(),
             timestamp: largest.timestamp,
         });
@@ -373,7 +377,10 @@ fn derive_milestones(
             id: "largest-module".to_string(),
             kind: StoryMilestoneKind::LargestModule,
             title: "District expansion".to_string(),
-            description: format!("{} gained {} new buildings in one commit.", directory, count),
+            description: format!(
+                "{} gained {} new buildings in one commit.",
+                directory, count
+            ),
             commit_id: commit.id.clone(),
             timestamp: commit.timestamp,
         });
@@ -407,15 +414,33 @@ fn derive_milestones(
             if let Some(file) = history.files.iter().find(|file| {
                 file.history.iter().any(|snapshot| snapshot.path == change.path)
             }) {
-                if let Some(previous) = file.history.iter().filter(|snapshot| snapshot.commit_index < history.commits.iter().position(|item| item.id == commit.id).unwrap_or(usize::MAX)).last() {
+                if let Some(previous) = file
+                    .history
+                    .iter()
+                    .filter(|snapshot| {
+                        snapshot.commit_index
+                            < history
+                                .commits
+                                .iter()
+                                .position(|item| item.id == commit.id)
+                                .unwrap_or(usize::MAX)
+                    })
+                    .last()
+                {
                     if previous.author_id != commit.author_id {
                         let key = file.id.clone();
-                        if seen_authors.insert(key, previous.author_id.clone()).is_none() {
+                        if seen_authors
+                            .insert(key, previous.author_id.clone())
+                            .is_none()
+                        {
                             milestones.push(StoryMilestone {
                                 id: format!("ownership-{}", commit.id),
                                 kind: StoryMilestoneKind::OwnershipTransition,
                                 title: "Ownership changes".to_string(),
-                                description: format!("A file changed hands from {} to {}.", previous.author_id, commit.author_id),
+                                description: format!(
+                                    "A file changed hands from {} to {}.",
+                                    previous.author_id, commit.author_id
+                                ),
                                 commit_id: commit.id.clone(),
                                 timestamp: commit.timestamp,
                             });
@@ -427,7 +452,11 @@ fn derive_milestones(
     }
 
     let release_count = history.releases.len();
-    for release in history.releases.iter().skip(release_count.saturating_sub(4)) {
+    for release in history
+        .releases
+        .iter()
+        .skip(release_count.saturating_sub(4))
+    {
         milestones.push(StoryMilestone {
             id: format!("release-{}", release.name),
             kind: StoryMilestoneKind::Release,
@@ -439,7 +468,10 @@ fn derive_milestones(
     }
 
     milestones.sort_by_key(|milestone| milestone.timestamp);
-    milestones.dedup_by(|a, b| a.commit_id == b.commit_id && std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind));
+    milestones.dedup_by(|a, b| {
+        a.commit_id == b.commit_id
+            && std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind)
+    });
     milestones
 }
 
