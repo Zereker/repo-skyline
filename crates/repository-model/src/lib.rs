@@ -35,6 +35,7 @@ pub struct FileChange {
     pub kind: ChangeKind,
     pub additions: u32,
     pub deletions: u32,
+    pub lines_after: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +45,19 @@ pub enum ChangeKind {
     Modified,
     Deleted,
     Renamed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSnapshot {
+    pub commit_id: String,
+    pub commit_index: usize,
+    pub timestamp: i64,
+    pub path: String,
+    pub lines: u64,
+    pub additions: u64,
+    pub deletions: u64,
+    pub author_id: String,
+    pub kind: ChangeKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +73,7 @@ pub struct FileRecord {
     pub deletions: u64,
     pub current_lines: u64,
     pub authors: Vec<AuthorContribution>,
+    pub history: Vec<FileSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
