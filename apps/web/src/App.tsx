@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import CityScene from "./CityScene";
 import CommitChanges from "./CommitChanges";
 import PlaybackControls from "./PlaybackControls";
+import StoryPanel from "./StoryPanel";
 import {
   activeDistrictsAt,
   colorForContributor,
@@ -10,7 +11,12 @@ import {
   type PlacedBuilding,
 } from "./cityLayout";
 import { sampleCity } from "./sampleCity";
-import type { CityEventKind, CityProject, District } from "./types";
+import type {
+  CityEventKind,
+  CityProject,
+  District,
+  StoryMilestone,
+} from "./types";
 
 type ViewMode = "district" | "territory";
 
@@ -22,6 +28,8 @@ export default function App() {
   const [commitIndex, setCommitIndex] = useState(
     Math.max(0, sampleCity.timeline.length - 1),
   );
+  const [storyPlaying, setStoryPlaying] = useState(false);
+  const [storyIndex, setStoryIndex] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,15 +41,18 @@ export default function App() {
       })
       .then((generatedCity) => {
         if (!cancelled && generatedCity.districts) {
-          const normalized = {
+          const normalized: CityProject = {
             ...generatedCity,
             timeline: generatedCity.timeline ?? [],
+            releases: generatedCity.releases ?? [],
+            milestones: generatedCity.milestones ?? [],
           };
 
           setCity(normalized);
           setCommitIndex(Math.max(0, normalized.timeline.length - 1));
           setDataSource("generated");
           setSelected(null);
+          setStoryIndex(0);
         }
       })
       .catch(() => {
@@ -114,6 +125,63 @@ export default function App() {
     buildings: district.buildings,
   }));
 
+  const storyMilestones = city.milestones ?? [];
+  const activeStoryMilestone: StoryMilestone | null =
+    storyMilestones[storyIndex] ?? null;
+
+  const storyFocusPath = useMemo(() => {
+    if (!activeStoryMilestone) return null;
+    return (
+      city.timeline.find((commit) => commit.id === activeStoryMilestone.commit_id)
+        ?.changes[0]?.path ?? null
+    );
+  }, [activeStoryMilestone, city.timeline]);
+
+  const jumpToMilestone = (index: number) => {
+    const milestone = storyMilestones[index];
+    if (!milestone) return;
+
+    const nextCommitIndex = city.timeline.findIndex(
+      (commit) => commit.id === milestone.commit_id,
+    );
+
+    if (nextCommitIndex >= 0) {
+      setCommitIndex(nextCommitIndex);
+      setStoryIndex(index);
+      setSelected(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!storyPlaying || storyMilestones.length === 0) return;
+
+    const timer = window.setTimeout(() => {
+      const next = storyIndex + 1;
+
+      if (next >= storyMilestones.length) {
+        setStoryPlaying(false);
+        return;
+      }
+
+      jumpToMilestone(next);
+    }, 2600);
+
+    return () => window.clearTimeout(timer);
+  }, [storyPlaying, storyIndex, storyMilestones.length]);
+
+  const releaseCommitIndices = useMemo(
+    () =>
+      city.releases
+        .map((release) => ({
+          release,
+          index: city.timeline.findIndex(
+            (commit) => commit.id === release.commit_id,
+          ),
+        }))
+        .filter((item) => item.index >= 0),
+    [city.releases, city.timeline],
+  );
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -145,6 +213,7 @@ export default function App() {
             <span>{activeDistricts.length} districts</span>
             <span>{totalBuildings} buildings</span>
             <span>{city.timeline.length} commits</span>
+            <span>{city.releases.length} releases</span>
           </div>
         </div>
       </header>
@@ -187,6 +256,8 @@ export default function App() {
               commitId={currentCommit?.id}
               viewMode={viewMode}
               onSelect={setSelected}
+              cinematic={storyPlaying}
+              focusPath={storyFocusPath}
             />
           </Canvas>
 
@@ -196,6 +267,14 @@ export default function App() {
             <span><i className="legend-dot deleted" />Deleted</span>
             <span><i className="legend-dot renamed" />Renamed</span>
           </div>
+
+          {storyPlaying && activeStoryMilestone ? (
+            <div className="cinematic-caption">
+              <span>STORY {storyIndex + 1} / {storyMilestones.length}</span>
+              <strong>{activeStoryMilestone.title}</strong>
+              <small>{activeStoryMilestone.description}</small>
+            </div>
+          ) : null}
 
           <div className="hint">
             Drag to orbit · scroll to zoom · click a building to inspect
@@ -237,12 +316,26 @@ export default function App() {
         </aside>
       </section>
 
+      <StoryPanel
+        milestones={storyMilestones}
+        activeIndex={storyIndex}
+        playing={storyPlaying}
+        onSelect={jumpToMilestone}
+        onPlay={() => {
+          setStoryIndex(0);
+          jumpToMilestone(0);
+          setStoryPlaying(true);
+        }}
+        onStop={() => setStoryPlaying(false)}
+      />
+
       <footer className="timeline">
         <div className="timeline-topline">
           <PlaybackControls
             length={city.timeline.length}
             index={commitIndex}
             onIndexChange={(index) => {
+              setStoryPlaying(false);
               setSelected(null);
               setCommitIndex(index);
             }}
@@ -257,6 +350,13 @@ export default function App() {
                   ? `${currentCommit.author} · ${currentDate} · ${currentCommit.id.slice(0, 8)}`
                   : currentDate}
               </p>
+              {currentCommit?.releases.length ? (
+                <div className="release-badges">
+                  {currentCommit.releases.map((release) => (
+                    <span key={release}>Release {release}</span>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <span className="change-count">
@@ -265,19 +365,40 @@ export default function App() {
           </div>
         </div>
 
-        <input
-          className="timeline-range"
-          type="range"
-          min={0}
-          max={Math.max(0, city.timeline.length - 1)}
-          value={Math.min(commitIndex, Math.max(0, city.timeline.length - 1))}
-          disabled={city.timeline.length === 0}
-          onChange={(event) => {
-            setSelected(null);
-            setCommitIndex(Number(event.target.value));
-          }}
-          aria-label="Commit timeline"
-        />
+        <div className="timeline-track">
+          <input
+            className="timeline-range"
+            type="range"
+            min={0}
+            max={Math.max(0, city.timeline.length - 1)}
+            value={Math.min(commitIndex, Math.max(0, city.timeline.length - 1))}
+            disabled={city.timeline.length === 0}
+            onChange={(event) => {
+              setStoryPlaying(false);
+              setSelected(null);
+              setCommitIndex(Number(event.target.value));
+            }}
+            aria-label="Commit timeline"
+          />
+
+          {city.timeline.length > 1
+            ? releaseCommitIndices.map(({ release, index }) => (
+                <button
+                  type="button"
+                  className="release-marker"
+                  key={release.name}
+                  style={{
+                    left: `${(index / (city.timeline.length - 1)) * 100}%`,
+                  }}
+                  title={release.name}
+                  onClick={() => {
+                    setStoryPlaying(false);
+                    setCommitIndex(index);
+                  }}
+                />
+              ))
+            : null}
+        </div>
 
         <div className="timeline-labels">
           <span>{city.timeline.at(0)?.message ?? "Start"}</span>
