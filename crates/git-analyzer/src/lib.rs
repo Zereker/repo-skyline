@@ -77,15 +77,18 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
 }
 
 fn parse_releases(path: &Path, commits: &[CommitRecord]) -> Result<Vec<ReleaseRecord>> {
-    let tags = run_git(
-        path,
-        &[
-            "for-each-ref",
-            "--sort=creatordate",
-            "--format=%(refname:strip=2)%x1f%(objectname)%x1f%(creatordate:unix)",
-            "refs/tags",
-        ],
-    )?;
+    let format = format!(
+        "%(refname:strip=2){}%(objectname){}%(creatordate:unix)",
+        FIELD_SEP, FIELD_SEP
+    );
+    let args = [
+        "for-each-ref",
+        "--sort=creatordate",
+        "--format",
+        format.as_str(),
+        "refs/tags",
+    ];
+    let tags = run_git(path, &args)?;
 
     let mut releases = Vec::new();
 
