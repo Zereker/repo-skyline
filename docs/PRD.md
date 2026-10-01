@@ -369,6 +369,12 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 - Story Mode 关键事件跳转与自动播放
 - Story Mode cinematic camera focus
 - 大型仓库 `--max-buildings` 演示保护
+- 建筑形态分型（塔楼 / 办公 / 低层 / 仓储 / Civic）
+- District 代表建筑地标与屋顶结构
+- 选择性夜间窗灯效果
+- Release 全城事件波纹
+- 道路骨架与代码活跃 Hotspot
+- Story Mode 进度条、事件类型标签与 cinematic camera orbit
 
 ## 16. 一句话介绍
 
