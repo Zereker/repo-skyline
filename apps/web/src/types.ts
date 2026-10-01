@@ -6,8 +6,8 @@ export type FileSnapshot = {
   timestamp: number;
   path: string;
   lines: number;
-  additions: number;
-  deletions: number;
+  additions?: number;
+  deletions?: number;
   author_id: string;
   kind: ChangeKind;
 };
@@ -19,12 +19,12 @@ export type Building = {
   commits: number;
   additions: number;
   deletions: number;
-  contributor_count: number;
+  contributor_count?: number;
   primary_author?: string | null;
   created_at: number;
   deleted_at?: number | null;
-  last_modified_at: number;
-  history: FileSnapshot[];
+  last_modified_at?: number;
+  history?: FileSnapshot[];
 };
 
 export type District = {
