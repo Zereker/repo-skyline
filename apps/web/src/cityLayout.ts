@@ -4,6 +4,8 @@ export type PlacedBuilding = Building & {
   x: number;
   z: number;
   district: string;
+  from_x?: number;
+  from_z?: number;
 };
 
 export type PlacedDistrict = {
@@ -24,10 +26,29 @@ function stableHash(input: string) {
   return hash >>> 0;
 }
 
+function directoryOf(path: string) {
+  const slash = path.lastIndexOf("/");
+  return slash > 0 ? path.slice(0, slash) : "_root";
+}
+
+function historicalPoint(district: PlacedDistrict, path: string) {
+  const columns = Math.max(1, Math.floor((district.width - 3) / 2.3));
+  const rows = Math.max(1, Math.floor((district.depth - 3) / 2.3));
+  const cells = Math.max(1, columns * rows);
+  const index = stableHash(path) % cells;
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+
+  return {
+    x: district.x - district.width / 2 + 2 + column * 2.3,
+    z: district.z - district.depth / 2 + 2 + row * 2.3,
+  };
+}
+
 export function colorForContributor(author?: string | null) {
   if (!author) return "#64748b";
   const hue = stableHash(author) % 360;
-  return `hsl(${hue} 72% 62%)`;
+  return \`hsl(\${hue} 72% 62%)\`;
 }
 
 export function layoutCity(city: CityProject): PlacedDistrict[] {
@@ -72,16 +93,74 @@ export function layoutCity(city: CityProject): PlacedDistrict[] {
 
 export function activeDistrictsAt(
   districts: PlacedDistrict[],
-  timestamp: number,
+  commitIndex: number,
 ): PlacedDistrict[] {
+  const districtMap = new Map(districts.map((district) => [district.path, district]));
+  const active = new Map<string, PlacedBuilding[]>();
+
+  for (const district of districts) {
+    active.set(district.path, []);
+  }
+
+  for (const sourceDistrict of districts) {
+    for (const building of sourceDistrict.buildings) {
+      const snapshot = [...building.history]
+        .filter((item) => item.commit_index <= commitIndex)
+        .sort((a, b) => a.commit_index - b.commit_index)
+        .at(-1);
+
+      if (!snapshot) continue;
+
+      const previous = [...building.history]
+        .filter((item) => item.commit_index < snapshot.commit_index)
+        .sort((a, b) => a.commit_index - b.commit_index)
+        .at(-1);
+
+      if (snapshot.kind === "deleted" && snapshot.commit_index < commitIndex) {
+        continue;
+      }
+
+      const visibleLines =
+        snapshot.kind === "deleted"
+          ? previous?.lines ?? building.lines
+          : snapshot.lines;
+
+      const destinationPath = directoryOf(snapshot.path);
+      const destination = districtMap.get(destinationPath) ?? sourceDistrict;
+      const point = destination === sourceDistrict && snapshot.path === building.path
+        ? { x: building.x, z: building.z }
+        : historicalPoint(destination, snapshot.path);
+
+      const previousPath = previous?.path;
+      const previousDistrict = previousPath
+        ? districtMap.get(directoryOf(previousPath))
+        : undefined;
+
+      const from =
+        snapshot.kind === "renamed" && previousDistrict && previousPath
+          ? historicalPoint(previousDistrict, previousPath)
+          : undefined;
+
+      const nextBuilding: PlacedBuilding = {
+        ...building,
+        path: snapshot.path,
+        lines: visibleLines,
+        district: destination.path,
+        primary_author: snapshot.author_id || building.primary_author,
+        x: point.x,
+        z: point.z,
+        from_x: from?.x,
+        from_z: from?.z,
+      };
+
+      active.get(destination.path)?.push(nextBuilding);
+    }
+  }
+
   return districts
     .map((district) => ({
       ...district,
-      buildings: district.buildings.filter(
-        (building) =>
-          building.created_at <= timestamp &&
-          (building.deleted_at == null || building.deleted_at >= timestamp),
-      ),
+      buildings: active.get(district.path) ?? [],
     }))
     .filter((district) => district.buildings.length > 0);
 }
