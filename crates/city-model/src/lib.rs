@@ -412,7 +412,7 @@ fn derive_milestones(
     }
 
     let mut seen_authors = HashMap::<String, String>::new();
-    for commit in &history.commits {
+    for (commit_index, commit) in history.commits.iter().enumerate() {
         for change in &commit.changes {
             if let Some(file) = history.files.iter().find(|file| {
                 file.history
@@ -422,15 +422,7 @@ fn derive_milestones(
                 if let Some(previous) = file
                     .history
                     .iter()
-                    .filter(|snapshot| {
-                        snapshot.commit_index
-                            < history
-                                .commits
-                                .iter()
-                                .position(|item| item.id == commit.id)
-                                .unwrap_or(usize::MAX)
-                    })
-                    .next_back()
+                    .rfind(|snapshot| snapshot.commit_index < commit_index)
                 {
                     if previous.author_id != commit.author_id {
                         let key = file.id.clone();
