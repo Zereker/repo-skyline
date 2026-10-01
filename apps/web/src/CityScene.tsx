@@ -54,6 +54,109 @@ export default function CityScene({
     desired.set(x + 11, 12, z + 13);
   }, [districts, focusPath, cityCenter, target, desired]);
 
+  const hotspotPaths = useMemo(() => {
+    const buildings = districts
+      .flatMap((district) => district.buildings)
+      .sort((a, b) => b.commits - a.commits || b.lines - a.lines);
+
+    const limit = Math.min(12, Math.max(3, Math.ceil(buildings.length * 0.05)));
+    return new Set(buildings.slice(0, limit).map((building) => building.path));
+  }, [districts]);
+
+  const roadSegments = useMemo(() => {
+    const segments: Array<{
+      id: string;
+      x: number;
+      z: number;
+      width: number;
+      depth: number;
+    }> = [];
+
+    for (const district of districts) {
+      const roadOffsetX = district.width / 2 - 0.55;
+      const roadOffsetZ = district.depth / 2 - 0.55;
+
+      segments.push(
+        {
+          id: `${district.path}:top`,
+          x: district.x,
+          z: district.z - roadOffsetZ,
+          width: district.width,
+          depth: 0.42,
+        },
+        {
+          id: `${district.path}:bottom`,
+          x: district.x,
+          z: district.z + roadOffsetZ,
+          width: district.width,
+          depth: 0.42,
+        },
+        {
+          id: `${district.path}:left`,
+          x: district.x - roadOffsetX,
+          z: district.z,
+          width: 0.42,
+          depth: district.depth,
+        },
+        {
+          id: `${district.path}:right`,
+          x: district.x + roadOffsetX,
+          z: district.z,
+          width: 0.42,
+          depth: district.depth,
+        },
+      );
+    }
+
+    const columns = new Map<number, PlacedDistrict[]>();
+    const rows = new Map<number, PlacedDistrict[]>();
+
+    for (const district of districts) {
+      const column = Math.round(district.x / 15);
+      const row = Math.round(district.z / 15);
+      columns.set(column, [...(columns.get(column) ?? []), district]);
+      rows.set(row, [...(rows.get(row) ?? []), district]);
+    }
+
+    for (const group of rows.values()) {
+      const ordered = [...group].sort((a, b) => a.x - b.x);
+      for (let index = 0; index < ordered.length - 1; index += 1) {
+        const from = ordered[index];
+        const to = ordered[index + 1];
+        const gap = to.x - from.x - from.width / 2 - to.width / 2;
+        if (gap > 0.8) {
+          segments.push({
+            id: `link-x:${from.path}:${to.path}`,
+            x: (from.x + to.x) / 2,
+            z: (from.z + to.z) / 2,
+            width: gap,
+            depth: 0.5,
+          });
+        }
+      }
+    }
+
+    for (const group of columns.values()) {
+      const ordered = [...group].sort((a, b) => a.z - b.z);
+      for (let index = 0; index < ordered.length - 1; index += 1) {
+        const from = ordered[index];
+        const to = ordered[index + 1];
+        const gap = to.z - from.z - from.depth / 2 - to.depth / 2;
+        if (gap > 0.8) {
+          segments.push({
+            id: `link-z:${from.path}:${to.path}`,
+            x: (from.x + to.x) / 2,
+            z: (from.z + to.z) / 2,
+            width: 0.5,
+            depth: gap,
+          });
+        }
+      }
+    }
+
+    return segments;
+  }, [districts]);
+
   useFrame((_, delta) => {
     if (!cinematic) return;
 
@@ -79,6 +182,19 @@ export default function CityScene({
         args={[140, 70, "#233149", "#101a2b"]}
         position={[cityCenter[0], -0.13, cityCenter[1]]}
       />
+
+      {roadSegments.map((road) => (
+        <group key={road.id}>
+          <mesh position={[road.x, 0.075, road.z]} receiveShadow>
+            <boxGeometry args={[road.width, 0.08, road.depth]} />
+            <meshStandardMaterial color="#263247" roughness={0.92} />
+          </mesh>
+          <mesh position={[road.x, 0.12, road.z]} rotation={road.width > road.depth ? [0, 0, 0] : [0, Math.PI / 2, 0]}>
+            <boxGeometry args={[Math.max(0.05, road.width > road.depth ? road.width - 0.35 : road.depth - 0.35), 0.018, 0.025]} />
+            <meshStandardMaterial color="#56657c" emissive="#182337" emissiveIntensity={0.3} />
+          </mesh>
+        </group>
+      ))}
 
       {districts.map((district) => (
         <group key={district.path}>
@@ -126,6 +242,7 @@ export default function CityScene({
               changeKind={activeChanges.get(building.path)}
               commitId={commitId}
               viewMode={viewMode}
+              hotspot={hotspotPaths.has(building.path)}
               onSelect={onSelect}
             />
           ))}
