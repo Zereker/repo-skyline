@@ -36,6 +36,7 @@ fn analyzes_create_modify_rename_and_delete() {
     fs::create_dir_all(repo.join("src")).expect("src dir");
     fs::write(repo.join("src/main.rs"), "fn main() {}\n").expect("create main");
     commit(repo, "create main");
+    git(repo, &["tag", "v0.1.0"]);
 
     fs::write(
         repo.join("src/main.rs"),
@@ -57,6 +58,9 @@ fn analyzes_create_modify_rename_and_delete() {
 
     assert_eq!(history.commits.len(), 5);
     assert_eq!(history.authors.len(), 1);
+    assert_eq!(history.releases.len(), 1);
+    assert_eq!(history.releases[0].name, "v0.1.0");
+    assert_eq!(history.releases[0].commit_id, history.commits[0].id);
 
     let rename_commit = history
         .commits
