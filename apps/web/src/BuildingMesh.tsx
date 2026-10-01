@@ -46,10 +46,11 @@ export default function BuildingMesh({
   const previousLines = useMemo(() => {
     if (!commitId) return building.lines;
 
-    const index = building.history.findIndex((snapshot) => snapshot.commit_id === commitId);
+    const history = building.history ?? [];
+    const index = history.findIndex((snapshot) => snapshot.commit_id === commitId);
     if (index <= 0) return 0;
 
-    return building.history[index - 1]?.lines ?? 0;
+    return history[index - 1]?.lines ?? 0;
   }, [building.history, building.lines, commitId]);
 
   const previousHeight = buildingHeight(previousLines);
