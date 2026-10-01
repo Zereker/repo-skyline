@@ -71,6 +71,7 @@ export const sampleCity: CityProject = {
       author: "Zereker",
       message: "chore: initialize Repo Skyline",
       changes: [{ path: "README.md", kind: "added" }],
+      releases: [],
     },
     {
       id: "51f4a68",
@@ -78,6 +79,7 @@ export const sampleCity: CityProject = {
       author: "Zereker",
       message: "feat: walk real commit history",
       changes: [{ path: "crates/git-analyzer/src/lib.rs", kind: "modified" }],
+      releases: [],
     },
     {
       id: "890110d",
@@ -85,6 +87,40 @@ export const sampleCity: CityProject = {
       author: "Zereker",
       message: "feat: implement stable git CLI history analyzer",
       changes: [{ path: "crates/git-analyzer/src/lib.rs", kind: "modified" }],
+      releases: ["v0.1.0"],
+    },
+  ],
+  releases: [
+    {
+      name: "v0.1.0",
+      commit_id: "890110d",
+      timestamp: 1790755200,
+    },
+  ],
+  milestones: [
+    {
+      id: "first-commit",
+      kind: "first_commit",
+      title: "First commit",
+      description: "The city foundation.",
+      commit_id: "a6481a7",
+      timestamp: 1790750000,
+    },
+    {
+      id: "largest-change",
+      kind: "largest_change",
+      title: "Biggest construction wave",
+      description: "A large commit reshaped the city.",
+      commit_id: "890110d",
+      timestamp: 1790755200,
+    },
+    {
+      id: "release-v0.1.0",
+      kind: "release",
+      title: "Release v0.1.0",
+      description: "A Git tag marks a city milestone.",
+      commit_id: "890110d",
+      timestamp: 1790755200,
     },
   ],
 };
