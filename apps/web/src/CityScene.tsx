@@ -1,6 +1,7 @@
 import { Billboard, OrbitControls, Text } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import type { Mesh, MeshStandardMaterial } from "three";
 import { Vector3 } from "three";
 import BuildingMesh from "./BuildingMesh";
 import type { PlacedBuilding, PlacedDistrict } from "./cityLayout";
@@ -12,6 +13,7 @@ type Props = {
   districts: PlacedDistrict[];
   activeChanges: Map<string, CityEventKind>;
   commitId?: string;
+  releaseNames?: string[];
   viewMode: ViewMode;
   onSelect: (building: PlacedBuilding) => void;
   cinematic?: boolean;
@@ -22,6 +24,7 @@ export default function CityScene({
   districts,
   activeChanges,
   commitId,
+  releaseNames = [],
   viewMode,
   onSelect,
   cinematic = false,
@@ -30,6 +33,9 @@ export default function CityScene({
   const { camera } = useThree();
   const target = useMemo(() => new Vector3(), []);
   const desired = useMemo(() => new Vector3(), []);
+  const rippleRef = useRef<Mesh>(null);
+  const rippleMaterialRef = useRef<MeshStandardMaterial>(null);
+  const rippleProgressRef = useRef(0);
 
   const cityCenter = useMemo(() => {
     if (districts.length === 0) return [0, 0] as const;
@@ -61,6 +67,20 @@ export default function CityScene({
 
     const limit = Math.min(12, Math.max(3, Math.ceil(buildings.length * 0.05)));
     return new Set(buildings.slice(0, limit).map((building) => building.path));
+  }, [districts]);
+
+  const landmarkPaths = useMemo(() => {
+    const paths = new Set<string>();
+
+    for (const district of districts) {
+      const landmark = [...district.buildings].sort(
+        (a, b) => b.lines - a.lines || b.commits - a.commits,
+      )[0];
+
+      if (landmark) paths.add(landmark.path);
+    }
+
+    return paths;
   }, [districts]);
 
   const roadSegments = useMemo(() => {
@@ -157,17 +177,36 @@ export default function CityScene({
     return segments;
   }, [districts]);
 
-  useFrame((state, delta) => {
-    if (!cinematic) return;
+  useEffect(() => {
+    rippleProgressRef.current = releaseNames.length > 0 ? 0 : 2;
+    if (rippleRef.current) {
+      rippleRef.current.visible = releaseNames.length > 0;
+      rippleRef.current.scale.setScalar(1);
+    }
+  }, [commitId, releaseNames]);
 
-    const smoothing = 1 - Math.pow(0.001, delta);
-    const orbit = state.clock.elapsedTime * 0.34;
-    const cinematicDesired = desired.clone();
-    cinematicDesired.x += Math.sin(orbit) * 1.8;
-    cinematicDesired.z += Math.cos(orbit) * 1.2;
-    cinematicDesired.y += Math.sin(orbit * 0.7) * 0.55;
-    camera.position.lerp(cinematicDesired, smoothing);
-    camera.lookAt(target);
+  useFrame((state, delta) => {
+    if (cinematic) {
+      const smoothing = 1 - Math.pow(0.001, delta);
+      const orbit = state.clock.elapsedTime * 0.34;
+      const cinematicDesired = desired.clone();
+      cinematicDesired.x += Math.sin(orbit) * 1.8;
+      cinematicDesired.z += Math.cos(orbit) * 1.2;
+      cinematicDesired.y += Math.sin(orbit * 0.7) * 0.55;
+      camera.position.lerp(cinematicDesired, smoothing);
+      camera.lookAt(target);
+    }
+
+    const ripple = rippleRef.current;
+    const rippleMaterial = rippleMaterialRef.current;
+    if (ripple && rippleMaterial && releaseNames.length > 0) {
+      rippleProgressRef.current = Math.min(1.15, rippleProgressRef.current + delta * 0.55);
+      const progress = rippleProgressRef.current;
+      const scale = 1 + progress * 22;
+      ripple.scale.setScalar(scale);
+      rippleMaterial.opacity = Math.max(0, 0.72 * (1 - progress));
+      ripple.visible = progress < 1;
+    }
   });
 
   return (
@@ -188,15 +227,49 @@ export default function CityScene({
         position={[cityCenter[0], -0.13, cityCenter[1]]}
       />
 
+      <mesh
+        ref={rippleRef}
+        position={[cityCenter[0], 0.18, cityCenter[1]]}
+        rotation={[0, 0, 0]}
+        visible={releaseNames.length > 0}
+      >
+        <torusGeometry args={[1, 0.055, 8, 96]} />
+        <meshStandardMaterial
+          ref={rippleMaterialRef}
+          color="#8fc1ff"
+          emissive="#5b9dff"
+          emissiveIntensity={1.15}
+          transparent
+          opacity={0.7}
+          roughness={0.35}
+        />
+      </mesh>
+
       {roadSegments.map((road) => (
         <group key={road.id}>
           <mesh position={[road.x, 0.075, road.z]} receiveShadow>
             <boxGeometry args={[road.width, 0.08, road.depth]} />
             <meshStandardMaterial color="#263247" roughness={0.92} />
           </mesh>
-          <mesh position={[road.x, 0.12, road.z]} rotation={road.width > road.depth ? [0, 0, 0] : [0, Math.PI / 2, 0]}>
-            <boxGeometry args={[Math.max(0.05, road.width > road.depth ? road.width - 0.35 : road.depth - 0.35), 0.018, 0.025]} />
-            <meshStandardMaterial color="#56657c" emissive="#182337" emissiveIntensity={0.3} />
+          <mesh
+            position={[road.x, 0.12, road.z]}
+            rotation={road.width > road.depth ? [0, 0, 0] : [0, Math.PI / 2, 0]}
+          >
+            <boxGeometry
+              args={[
+                Math.max(
+                  0.05,
+                  road.width > road.depth ? road.width - 0.35 : road.depth - 0.35,
+                ),
+                0.018,
+                0.025,
+              ]}
+            />
+            <meshStandardMaterial
+              color="#56657c"
+              emissive="#182337"
+              emissiveIntensity={0.3}
+            />
           </mesh>
         </group>
       ))}
@@ -248,6 +321,7 @@ export default function CityScene({
               commitId={commitId}
               viewMode={viewMode}
               hotspot={hotspotPaths.has(building.path)}
+              landmark={landmarkPaths.has(building.path)}
               onSelect={onSelect}
             />
           ))}
