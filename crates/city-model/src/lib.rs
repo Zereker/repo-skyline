@@ -430,7 +430,7 @@ fn derive_milestones(
                                 .position(|item| item.id == commit.id)
                                 .unwrap_or(usize::MAX)
                     })
-                    .last()
+                    .next_back()
                 {
                     if previous.author_id != commit.author_id {
                         let key = file.id.clone();
