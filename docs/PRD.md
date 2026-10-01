@@ -384,7 +384,7 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 
 ## 16. 验证状态
 
-History Accuracy phase implementation is under CI validation; Rust and browser build gates are now clean on the verification branch.
+History Accuracy phase implementation is under CI validation; Rust formatting, Web build, and Demo Smoke gates are now green on the verification branch.
 
 ## 17. 一句话介绍
 
