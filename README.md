@@ -9,6 +9,7 @@ Repo Skyline turns Git history into a living city. Directories become districts,
 - [Product Requirements](docs/PRD.md)
 - [Technical Design](docs/TECHNICAL_DESIGN.md)
 - [Roadmap](docs/ROADMAP.md)
+- [PRD acceptance and data semantics](docs/ACCEPTANCE.md)
 
 ## Current MVP
 
@@ -49,7 +50,7 @@ npm install
 npm run dev
 ```
 
-The web app loads `/city.json` when present and falls back to bundled sample data otherwise.
+The web app loads `/city.json` when present and falls back to clearly labelled sample data otherwise. Use **Open city JSON** to switch to data generated from any local repository. Invalid input shows an error and preserves the current city.
 
 ## Demo a real repository
 
@@ -130,10 +131,39 @@ docs
 - Building selection
 - Current commit file-change inspector
 
-## Next milestones
+## Analysis views
 
-1. Validate against several large public repositories.
-2. Improve rendering performance with instancing / level-of-detail.
-3. Add release and tag markers.
-4. Add Story Mode for Hackathon presentation.
-5. Add shareable recording / export flow.
+- **District**: group files by level 1, level 2 or full directory paths in Settings.
+- **Contributor Territory**: cumulative additions ownership at the selected commit;
+  click a contributor to inspect their mainline commits and owned files.
+- **Activity heatmap**: changes during the previous 30 days.
+- **Ghost District**: files inactive for a configurable number of days.
+- **Technical Debt indicators**: churn density and contributor counts for review.
+- **Bug Crime Scene**: fix-labelled commits with links back to the timeline.
+- **Architecture Drift**: cross-directory moves and repeated co-change links.
+- **AI vs Human provenance**: explicit commit labels; unmarked work stays unknown.
+
+Play and Story Mode are mutually exclusive. File details, ownership and analytical
+views reflect the selected commit rather than future totals. Large scenes use
+shared instanced geometry automatically. Fit city resets the camera.
+
+## Git history scope
+
+The analyzer follows HEAD's first-parent lineage. Merge diffs enter once, against
+the first parent. Mainline and merge authors are shown; this is not a complete
+attribution of side-branch commits. Bare repositories and detached HEAD work.
+Shallow clones need `git fetch --unshallow` before analysis.
+
+## Validation
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+bash scripts/validate-demo.sh
+cd apps/web
+npx playwright install chromium
+npm run test:e2e
+```
+
+See [acceptance notes](docs/ACCEPTANCE.md) for the exact evidence definitions and
+limits of each view.

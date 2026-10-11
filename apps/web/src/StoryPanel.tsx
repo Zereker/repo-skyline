@@ -45,11 +45,15 @@ export default function StoryPanel({
         {milestones.map((milestone, index) => (
           <button
             type="button"
-            className={index === activeIndex ? "story-step active" : "story-step"}
+            className={
+              index === activeIndex ? "story-step active" : "story-step"
+            }
             key={milestone.id}
             onClick={() => onSelect(index)}
           >
-            <span className="story-step-index">{String(index + 1).padStart(2, "0")}</span>
+            <span className="story-step-index">
+              {String(index + 1).padStart(2, "0")}
+            </span>
             <span className="story-step-copy">
               <em>{milestone.kind.replaceAll("_", " ")}</em>
               <strong>{milestone.title}</strong>

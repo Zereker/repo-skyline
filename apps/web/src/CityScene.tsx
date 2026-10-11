@@ -1,13 +1,13 @@
-import { Billboard, OrbitControls, Text } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import type { Mesh, MeshStandardMaterial } from "three";
-import { Vector3 } from "three";
+import { PerspectiveCamera, Vector3 } from "three";
+import DistrictLabel from "./DistrictLabel";
+import InstancedBuildings from "./InstancedBuildings";
 import BuildingMesh from "./BuildingMesh";
 import type { PlacedBuilding, PlacedDistrict } from "./cityLayout";
-import type { CityEventKind, CityRoad } from "./types";
-
-type ViewMode = "district" | "territory";
+import type { CityEventKind, CityRoad, ViewMode } from "./types";
 
 type Props = {
   districts: PlacedDistrict[];
@@ -17,6 +17,10 @@ type Props = {
   releaseNames?: string[];
   viewMode: ViewMode;
   onSelect: (building: PlacedBuilding) => void;
+  onHover: (building: PlacedBuilding | null) => void;
+  selectedId?: string;
+  fitRequest?: number;
+  showRoads?: boolean;
   cinematic?: boolean;
   focusPath?: string | null;
 };
@@ -29,10 +33,14 @@ export default function CityScene({
   releaseNames = [],
   viewMode,
   onSelect,
+  onHover,
+  selectedId,
+  fitRequest = 0,
+  showRoads = true,
   cinematic = false,
   focusPath = null,
 }: Props) {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const target = useMemo(() => new Vector3(), []);
   const desired = useMemo(() => new Vector3(), []);
   const rippleRef = useRef<Mesh>(null);
@@ -42,10 +50,18 @@ export default function CityScene({
   const cityCenter = useMemo(() => {
     if (districts.length === 0) return [0, 0] as const;
 
-    const minX = Math.min(...districts.map((district) => district.x - district.width / 2));
-    const maxX = Math.max(...districts.map((district) => district.x + district.width / 2));
-    const minZ = Math.min(...districts.map((district) => district.z - district.depth / 2));
-    const maxZ = Math.max(...districts.map((district) => district.z + district.depth / 2));
+    const minX = Math.min(
+      ...districts.map((district) => district.x - district.width / 2),
+    );
+    const maxX = Math.max(
+      ...districts.map((district) => district.x + district.width / 2),
+    );
+    const minZ = Math.min(
+      ...districts.map((district) => district.z - district.depth / 2),
+    );
+    const maxZ = Math.max(
+      ...districts.map((district) => district.z + district.depth / 2),
+    );
 
     return [(minX + maxX) / 2, (minZ + maxZ) / 2] as const;
   }, [districts]);
@@ -62,10 +78,60 @@ export default function CityScene({
     desired.set(x + 11, 12, z + 13);
   }, [districts, focusPath, cityCenter, target, desired]);
 
+  useEffect(() => {
+    const bounds = districts.reduce(
+      (radius, d) =>
+        Math.max(
+          radius,
+          Math.hypot(
+            Math.abs(d.x - cityCenter[0]) + d.width / 2,
+            Math.abs(d.z - cityCenter[1]) + d.depth / 2,
+          ),
+        ),
+      8,
+    );
+    const radius = Math.hypot(bounds, 11);
+    let distance = radius * 3;
+    if (camera instanceof PerspectiveCamera) {
+      const vertical = (camera.fov * Math.PI) / 360;
+      const horizontal = Math.atan(
+        Math.tan(vertical) *
+          Math.max(0.1, size.width / Math.max(1, size.height)),
+      );
+      distance = (radius / Math.sin(Math.min(vertical, horizontal))) * 1.1;
+      camera.far = Math.max(1000, distance * 3);
+      camera.updateProjectionMatrix();
+    }
+    const direction = new Vector3(1, 1.15, 1.1)
+      .normalize()
+      .multiplyScalar(distance);
+    camera.position.set(
+      cityCenter[0] + direction.x,
+      direction.y,
+      cityCenter[1] + direction.z,
+    );
+    camera.lookAt(cityCenter[0], 0, cityCenter[1]);
+  }, [fitRequest, size.width, size.height]);
+
+  const compact = districts.reduce((n, d) => n + d.buildings.length, 0) > 400;
+  const groundSize = Math.max(
+    140,
+    ...districts.map(
+      (d) =>
+        Math.max(
+          d.width + 2 * Math.abs(d.x - cityCenter[0]),
+          d.depth + 2 * Math.abs(d.z - cityCenter[1]),
+        ) + 20,
+    ),
+  );
+
   const hotspotPaths = useMemo(() => {
     const buildings = districts
       .flatMap((district) => district.buildings)
-      .sort((a, b) => b.commits - a.commits || b.lines - a.lines);
+      .filter((b) => b.status === "Active" && b.recent_activity > 0)
+      .sort(
+        (a, b) => b.recent_activity - a.recent_activity || b.lines - a.lines,
+      );
 
     const limit = Math.min(12, Math.max(3, Math.ceil(buildings.length * 0.05)));
     return new Set(buildings.slice(0, limit).map((building) => building.path));
@@ -182,14 +248,21 @@ export default function CityScene({
   const cochangeRoads = useMemo(() => {
     const buildings = new Map<string, PlacedBuilding>();
     for (const district of districts) {
-      for (const building of district.buildings) buildings.set(building.id, building);
+      for (const building of district.buildings)
+        buildings.set(building.id, building);
     }
 
-    return roads
+    return (showRoads ? roads : [])
       .map((road) => {
         const from = buildings.get(road.from);
         const to = buildings.get(road.to);
-        if (!from || !to) return null;
+        if (
+          !from ||
+          !to ||
+          from.status === "Demolished" ||
+          to.status === "Demolished"
+        )
+          return null;
 
         const dx = to.x - from.x;
         const dz = to.z - from.z;
@@ -206,7 +279,7 @@ export default function CityScene({
       })
       .filter((road): road is NonNullable<typeof road> => road !== null)
       .slice(0, 80);
-  }, [districts, roads]);
+  }, [districts, roads, showRoads]);
 
   useEffect(() => {
     rippleProgressRef.current = releaseNames.length > 0 ? 0 : 2;
@@ -231,7 +304,10 @@ export default function CityScene({
     const ripple = rippleRef.current;
     const rippleMaterial = rippleMaterialRef.current;
     if (ripple && rippleMaterial && releaseNames.length > 0) {
-      rippleProgressRef.current = Math.min(1.15, rippleProgressRef.current + delta * 0.55);
+      rippleProgressRef.current = Math.min(
+        1.15,
+        rippleProgressRef.current + delta * 0.55,
+      );
       const progress = rippleProgressRef.current;
       const scale = 1 + progress * 22;
       ripple.scale.setScalar(scale);
@@ -249,12 +325,17 @@ export default function CityScene({
       <fog attach="fog" args={["#080d18", 58, 135]} />
 
       <mesh position={[cityCenter[0], -0.32, cityCenter[1]]} receiveShadow>
-        <boxGeometry args={[140, 0.35, 140]} />
+        <boxGeometry args={[groundSize, 0.35, groundSize]} />
         <meshStandardMaterial color="#07101b" roughness={1} />
       </mesh>
 
       <gridHelper
-        args={[140, 70, "#233149", "#101a2b"]}
+        args={[
+          groundSize,
+          Math.min(120, Math.ceil(groundSize / 2)),
+          "#233149",
+          "#101a2b",
+        ]}
         position={[cityCenter[0], -0.13, cityCenter[1]]}
       />
 
@@ -290,7 +371,9 @@ export default function CityScene({
               args={[
                 Math.max(
                   0.05,
-                  road.width > road.depth ? road.width - 0.35 : road.depth - 0.35,
+                  road.width > road.depth
+                    ? road.width - 0.35
+                    : road.depth - 0.35,
                 ),
                 0.018,
                 0.025,
@@ -316,7 +399,11 @@ export default function CityScene({
           rotation={[0, -road.angle, 0]}
         >
           <boxGeometry
-            args={[road.length, 0.045, 0.08 + Math.min(0.18, road.weight * 0.025)]}
+            args={[
+              road.length,
+              0.045,
+              0.08 + Math.min(0.18, road.weight * 0.025),
+            ]}
           />
           <meshStandardMaterial
             color="#3f6f9f"
@@ -332,12 +419,16 @@ export default function CityScene({
       {districts.map((district) => (
         <group key={district.path}>
           <mesh position={[district.x, -0.11, district.z]} receiveShadow>
-            <boxGeometry args={[district.width + 1.15, 0.12, district.depth + 1.15]} />
+            <boxGeometry
+              args={[district.width + 1.15, 0.12, district.depth + 1.15]}
+            />
             <meshStandardMaterial color="#0b1524" roughness={0.95} />
           </mesh>
 
           <mesh position={[district.x, -0.045, district.z]} receiveShadow>
-            <boxGeometry args={[district.width + 0.42, 0.08, district.depth + 0.42]} />
+            <boxGeometry
+              args={[district.width + 0.42, 0.08, district.depth + 0.42]}
+            />
             <meshStandardMaterial color="#152238" roughness={0.9} />
           </mesh>
 
@@ -349,37 +440,41 @@ export default function CityScene({
             />
           </mesh>
 
-          <Billboard
+          <DistrictLabel
+            path={district.path}
             position={[
               district.x,
               1.1,
               district.z - Math.max(1.5, district.depth / 2 - 0.8),
             ]}
-          >
-            <Text
-              fontSize={0.72}
-              color="#d4e1f4"
-              anchorX="center"
-              anchorY="middle"
-              outlineWidth={0.025}
-              outlineColor="#060b13"
-            >
-              {district.path}
-            </Text>
-          </Billboard>
+          />
 
-          {district.buildings.map((building) => (
-            <BuildingMesh
-              key={building.id}
-              building={building}
-              changeKind={activeChanges.get(building.path)}
+          {compact ? (
+            <InstancedBuildings
+              buildings={district.buildings}
+              changes={activeChanges}
               commitId={commitId}
               viewMode={viewMode}
-              hotspot={hotspotPaths.has(building.path)}
-              landmark={landmarkPaths.has(building.path)}
+              selectedId={selectedId}
               onSelect={onSelect}
+              onHover={onHover}
             />
-          ))}
+          ) : (
+            district.buildings.map((building) => (
+              <BuildingMesh
+                key={building.id}
+                building={building}
+                changeKind={activeChanges.get(building.path)}
+                commitId={commitId}
+                viewMode={viewMode}
+                hotspot={hotspotPaths.has(building.path)}
+                landmark={landmarkPaths.has(building.path)}
+                onSelect={onSelect}
+                onHover={onHover}
+                selected={selectedId === building.id}
+              />
+            ))
+          )}
         </group>
       ))}
 
@@ -389,7 +484,7 @@ export default function CityScene({
         enableDamping
         dampingFactor={0.08}
         minDistance={8}
-        maxDistance={100}
+        maxDistance={1000}
         maxPolarAngle={Math.PI / 2.05}
         target={[cityCenter[0], 0, cityCenter[1]]}
       />

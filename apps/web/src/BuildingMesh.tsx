@@ -1,10 +1,13 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import type { Mesh, MeshStandardMaterial } from "three";
-import { colorForContributor, type PlacedBuilding } from "./cityLayout";
-import type { CityEventKind } from "./types";
-
-type ViewMode = "district" | "territory";
+import {
+  colorForContributor,
+  colorForDistrict,
+  colorForActivity,
+  type PlacedBuilding,
+} from "./cityLayout";
+import type { CityEventKind, ViewMode } from "./types";
 
 type Props = {
   building: PlacedBuilding;
@@ -14,6 +17,8 @@ type Props = {
   hotspot?: boolean;
   landmark?: boolean;
   onSelect: (building: PlacedBuilding) => void;
+  onHover: (building: PlacedBuilding | null) => void;
+  selected?: boolean;
 };
 
 function stableHash(input: string) {
@@ -37,6 +42,8 @@ export default function BuildingMesh({
   hotspot = false,
   landmark = false,
   onSelect,
+  onHover,
+  selected = false,
 }: Props) {
   const meshRef = useRef<Mesh>(null);
   const materialRef = useRef<MeshStandardMaterial>(null);
@@ -47,7 +54,9 @@ export default function BuildingMesh({
     if (!commitId) return building.lines;
 
     const history = building.history ?? [];
-    const index = history.findIndex((snapshot) => snapshot.commit_id === commitId);
+    const index = history.findIndex(
+      (snapshot) => snapshot.commit_id === commitId,
+    );
     if (index <= 0) return 0;
 
     return history[index - 1]?.lines ?? 0;
@@ -68,7 +77,10 @@ export default function BuildingMesh({
 
   useEffect(() => {
     progressRef.current =
-      changeKind === "added" || changeKind === "deleted" || changeKind === "modified" || changeKind === "renamed"
+      changeKind === "added" ||
+      changeKind === "deleted" ||
+      changeKind === "modified" ||
+      changeKind === "renamed"
         ? 0
         : 1;
 
@@ -76,7 +88,14 @@ export default function BuildingMesh({
       meshRef.current.position.x = building.from_x ?? building.x;
       meshRef.current.position.z = building.from_z ?? building.z;
     }
-  }, [changeKind, commitId, building.from_x, building.from_z, building.x, building.z]);
+  }, [
+    changeKind,
+    commitId,
+    building.from_x,
+    building.from_z,
+    building.x,
+    building.z,
+  ]);
 
   useFrame((state, delta) => {
     const mesh = meshRef.current;
@@ -120,14 +139,19 @@ export default function BuildingMesh({
       material.opacity = 1;
       material.transparent = false;
       material.emissiveIntensity =
-        0.22 + (Math.sin(state.clock.elapsedTime * 10) + 1) * 0.26 * (1 - t * 0.7);
+        0.22 +
+        (Math.sin(state.clock.elapsedTime * 10) + 1) * 0.26 * (1 - t * 0.7);
       return;
     }
 
     if (changeKind === "renamed") {
       progressRef.current = Math.min(1, progressRef.current + delta * 1.9);
       const t = 1 - Math.pow(1 - progressRef.current, 3);
-      mesh.scale.set(1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.012, 1, 1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.012);
+      mesh.scale.set(
+        1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.012,
+        1,
+        1 + (Math.sin(state.clock.elapsedTime * 8) + 1) * 0.012,
+      );
       const fromX = building.from_x ?? building.x;
       const fromZ = building.from_z ?? building.z;
       mesh.position.x = fromX + (building.x - fromX) * t;
@@ -147,12 +171,16 @@ export default function BuildingMesh({
   });
 
   const normalColor =
-    viewMode === "territory"
+    building.analysis_color ??
+    (viewMode === "territory"
       ? colorForContributor(building.primary_author)
-      : "#5f8fdc";
+      : viewMode === "activity"
+        ? colorForActivity(building.recent_activity)
+        : colorForDistrict(building.district));
 
-  const color =
-    changeKind === "added"
+  const color = selected
+    ? "#ffffff"
+    : changeKind === "added"
       ? "#7ee787"
       : changeKind === "modified"
         ? "#ffd166"
@@ -173,6 +201,11 @@ export default function BuildingMesh({
       ref={meshRef}
       position={[building.x, height / 2, building.z]}
       castShadow
+      onPointerOver={(event) => {
+        event.stopPropagation();
+        onHover(building);
+      }}
+      onPointerOut={() => onHover(null)}
       onClick={(event) => {
         event.stopPropagation();
         onSelect(building);
@@ -182,10 +215,17 @@ export default function BuildingMesh({
         <boxGeometry args={[shape.width * 0.78, height, shape.depth * 0.78]} />
       ) : isCivic ? (
         <cylinderGeometry
-          args={[Math.min(shape.width, shape.depth) * 0.58, Math.min(shape.width, shape.depth) * 0.68, height, 10]}
+          args={[
+            Math.min(shape.width, shape.depth) * 0.58,
+            Math.min(shape.width, shape.depth) * 0.68,
+            height,
+            10,
+          ]}
         />
       ) : isWarehouse ? (
-        <boxGeometry args={[shape.width * 1.22, height * 0.72, shape.depth * 1.18]} />
+        <boxGeometry
+          args={[shape.width * 1.22, height * 0.72, shape.depth * 1.18]}
+        />
       ) : (
         <boxGeometry args={[shape.width, height, shape.depth]} />
       )}
@@ -241,7 +281,9 @@ export default function BuildingMesh({
       {shape.windows ? (
         <>
           <mesh position={[0, -height * 0.08, -shape.depth / 2 - 0.008]}>
-            <boxGeometry args={[Math.max(0.35, shape.width * 0.72), 0.045, 0.018]} />
+            <boxGeometry
+              args={[Math.max(0.35, shape.width * 0.72), 0.045, 0.018]}
+            />
             <meshStandardMaterial
               color="#f7d98b"
               emissive="#f7b955"
@@ -251,7 +293,9 @@ export default function BuildingMesh({
           </mesh>
           {height > 3.2 ? (
             <mesh position={[0, height * 0.22, -shape.depth / 2 - 0.008]}>
-              <boxGeometry args={[Math.max(0.35, shape.width * 0.72), 0.045, 0.018]} />
+              <boxGeometry
+                args={[Math.max(0.35, shape.width * 0.72), 0.045, 0.018]}
+              />
               <meshStandardMaterial
                 color="#f7d98b"
                 emissive="#f7b955"
@@ -266,7 +310,14 @@ export default function BuildingMesh({
       {landmark ? (
         <>
           <mesh position={[0, roofY + 0.07, 0]}>
-            <torusGeometry args={[Math.max(0.34, Math.min(shape.width, shape.depth) * 0.34), 0.035, 8, 24]} />
+            <torusGeometry
+              args={[
+                Math.max(0.34, Math.min(shape.width, shape.depth) * 0.34),
+                0.035,
+                8,
+                24,
+              ]}
+            />
             <meshStandardMaterial
               color="#9ec5ff"
               emissive="#6fa9ff"

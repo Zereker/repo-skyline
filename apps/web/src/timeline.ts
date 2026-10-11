@@ -1,6 +1,9 @@
 import type { CityProject } from "./types";
 
-export function visibleCityAt(city: CityProject, timestamp: number): CityProject {
+export function visibleCityAt(
+  city: CityProject,
+  timestamp: number,
+): CityProject {
   return {
     ...city,
     districts: city.districts

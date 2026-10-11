@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -34,13 +36,35 @@ jobs:
         working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install
-        run: npm install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
 
       - name: Build
         run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate real Git city
+        run: cargo run --manifest-path ../../Cargo.toml -p repo-skyline-cli -- analyze ../.. -o public/city.json
+
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser checks
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-results
+          path: apps/web/test-results

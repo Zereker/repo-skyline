@@ -384,7 +384,9 @@ Story Mode 自动播放，适合作为 Hackathon Demo。
 
 ## 16. 验证状态
 
-History Accuracy phase implementation is under CI validation; Rust formatting, Web build, Demo Smoke, and strict Clippy ownership lookup are finalized on the verification branch.
+The PRD completion branch adds validated JSON import, historical contributor details, activity heatmap, camera fit/settings, directory grouping, responsive panels, and evidence-based P2 views. History replay now follows first-parent ancestry with merge deltas, exact text LOC, robust filename parsing and independent recreated-file identities.
+
+Feature acceptance, evidence definitions and test commands are recorded in [ACCEPTANCE.md](ACCEPTANCE.md). Technical Debt, Bug Crime Scene, Architecture Drift and AI/Human are Git-evidence views, respecting the MVP exclusions for automatic debt conclusions, AI detection and deep issue/PR association.
 
 ## 17. 一句话介绍
 

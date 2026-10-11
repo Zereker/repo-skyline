@@ -22,11 +22,11 @@ export default function CommitChanges({
                 <strong>{change.path}</strong>
                 <small>
                   +{change.additions} / -{change.deletions}
-                  {change.lines_after != null ? ` · ${change.lines_after} LOC` : ""}
+                  {change.lines_after != null
+                    ? ` · ${change.lines_after} LOC`
+                    : ""}
                 </small>
-                {change.old_path ? (
-                  <small>from {change.old_path}</small>
-                ) : null}
+                {change.old_path ? <small>from {change.old_path}</small> : null}
               </div>
             </div>
           ))}

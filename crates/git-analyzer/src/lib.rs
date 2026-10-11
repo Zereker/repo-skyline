@@ -3,593 +3,381 @@ use repository_model::{
     AuthorContribution, AuthorRecord, ChangeKind, CommitRecord, FileChange, FileRecord,
     FileSnapshot, ReleaseRecord, RepositoryHistory, RepositoryMeta,
 };
-use std::{collections::BTreeMap, path::Path, process::Command};
+use std::{
+    collections::BTreeMap,
+    io::{BufRead, BufReader, Read, Write},
+    path::Path,
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+};
 
-const FIELD_SEP: char = '\x1f';
-const COMMIT_PREFIX: &str = "@@COMMIT";
-
-#[derive(Debug, Clone)]
-struct FileAccumulator {
-    id: String,
-    path: String,
-    directory: String,
-    created_at: i64,
-    deleted_at: Option<i64>,
-    last_modified_at: i64,
-    commit_count: u32,
-    additions: u64,
-    deletions: u64,
-    authors: BTreeMap<String, AuthorContribution>,
-    history: Vec<FileSnapshot>,
-}
-
+/// Replay HEAD's first-parent lineage. Side-branch work enters at the merge,
+/// whose diff is measured against its first parent, so no work is counted twice.
 pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
-    let path = path.as_ref();
-
-    let inside = run_git(path, &["rev-parse", "--is-inside-work-tree"])
-        .context("failed to verify Git repository")?;
-    if inside.trim() != "true" {
-        bail!("{} is not a Git working tree", path.display());
-    }
-
-    let repository_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repository")
-        .to_string();
-
-    let head = run_git(path, &["rev-parse", "HEAD"])
+    let canonical_path = path
+        .as_ref()
+        .canonicalize()
+        .context("repository path does not exist")?;
+    let path = canonical_path.as_path();
+    run_git(path, &["rev-parse", "--git-dir"]).context("not a Git repository")?;
+    let head = run_git(path, &["rev-parse", "--verify", "HEAD"])
         .context("repository has no readable HEAD commit")?
         .trim()
         .to_string();
-
+    if run_git(path, &["rev-parse", "--is-shallow-repository"])?.trim() == "true" {
+        bail!("shallow history cannot be replayed accurately; run git fetch --unshallow first");
+    }
     let log = run_git(
         path,
         &[
             "log",
+            "--first-parent",
+            "--topo-order",
             "--reverse",
-            "--find-renames",
-            "--format=@@COMMIT%x1f%H%x1f%P%x1f%ae%x1f%an%x1f%at%x1f%s",
-            "--name-status",
+            "--format=%H%x00%P%x00%ae%x00%an%x00%at%x00%s%x00",
+            &head,
         ],
-    )
-    .context("failed to read Git history")?;
-
-    let (mut commits, authors) = parse_log(&log)?;
-    enrich_changes(path, &mut commits)?;
+    )?;
+    let mut commits = Vec::new();
+    let mut authors = BTreeMap::<String, AuthorRecord>::new();
+    let fields: Vec<_> = log.split('\0').collect();
+    let mut blobs = BlobReader::new(path)?;
+    for fields in fields.as_chunks::<6>().0 {
+        let id = fields[0].trim().to_string();
+        let parents: Vec<String> = fields[1].split_whitespace().map(str::to_owned).collect();
+        let email = fields[2];
+        let author_id = if email.is_empty() { fields[3] } else { email }.to_string();
+        let timestamp = fields[4].parse::<i64>()?;
+        let mut changes = read_changes(path, &id, parents.first().map(String::as_str))?;
+        for change in &mut changes {
+            change.lines_after = if change.kind == ChangeKind::Deleted {
+                Some(0)
+            } else {
+                blobs.lines(&format!("{id}:{}", change.path))?
+            };
+        }
+        authors
+            .entry(author_id.clone())
+            .and_modify(|author| {
+                author.commit_count += 1;
+                author.first_commit_at = author.first_commit_at.min(timestamp);
+                author.last_commit_at = author.last_commit_at.max(timestamp);
+            })
+            .or_insert(AuthorRecord {
+                id: author_id.clone(),
+                name: fields[3].to_string(),
+                email: (!email.is_empty()).then(|| email.to_string()),
+                commit_count: 1,
+                first_commit_at: timestamp,
+                last_commit_at: timestamp,
+            });
+        commits.push(CommitRecord {
+            id,
+            parents,
+            author_id,
+            author_name: fields[3].to_string(),
+            timestamp,
+            message: fields[5].to_string(),
+            changes,
+        });
+    }
     let files = build_file_records(&commits);
-    let releases = parse_releases(path, &commits)?;
-
+    let mut releases = Vec::new();
+    let tags = run_git(
+        path,
+        &["for-each-ref", "--format=%(refname:strip=2)", "refs/tags"],
+    )?;
+    for name in tags.lines() {
+        // ^{commit} peels annotated tags and excludes tags pointing at blobs/trees.
+        let Ok(commit_id) = run_git(
+            path,
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("refs/tags/{name}^{{commit}}"),
+            ],
+        ) else {
+            continue;
+        };
+        if let Some(commit) = commits.iter().find(|commit| commit.id == commit_id.trim()) {
+            releases.push(ReleaseRecord {
+                name: name.to_string(),
+                commit_id: commit.id.clone(),
+                timestamp: commit.timestamp,
+            });
+        }
+    }
+    releases.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then(a.name.cmp(&b.name)));
     Ok(RepositoryHistory {
         repository: RepositoryMeta {
-            name: repository_name,
-            first_commit_at: commits.first().map(|commit| commit.timestamp),
-            last_commit_at: commits.last().map(|commit| commit.timestamp),
+            name: path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("repository")
+                .trim_end_matches(".git")
+                .to_string(),
+            first_commit_at: commits.first().map(|c| c.timestamp),
+            last_commit_at: commits.last().map(|c| c.timestamp),
             head: Some(head),
         },
         commits,
         files,
-        authors,
+        authors: authors.into_values().collect(),
         releases,
     })
 }
 
-fn parse_releases(path: &Path, commits: &[CommitRecord]) -> Result<Vec<ReleaseRecord>> {
-    let format = format!(
-        "%(refname:strip=2){}%(objectname){}%(creatordate:unix)",
-        FIELD_SEP, FIELD_SEP
-    );
-    let args = [
-        "for-each-ref",
-        "--sort=creatordate",
-        "--format",
-        format.as_str(),
-        "refs/tags",
-    ];
-    let tags = run_git(path, &args)?;
-
-    let mut releases = Vec::new();
-
-    for line in tags.lines() {
-        let fields = line.split(FIELD_SEP).collect::<Vec<_>>();
-        if fields.len() < 3 {
-            continue;
+fn read_changes(path: &Path, id: &str, parent: Option<&str>) -> Result<Vec<FileChange>> {
+    let diff = |format: &str| -> Result<Vec<u8>> {
+        let mut args = vec![
+            "diff-tree",
+            "-r",
+            "--root",
+            "--no-commit-id",
+            "-M",
+            "-z",
+            format,
+        ];
+        if let Some(parent) = parent {
+            args.push(parent);
         }
-
-        let name = fields[0].trim();
-        let object = fields[1].trim();
-        let timestamp = fields[2].trim().parse::<i64>().unwrap_or(0);
-
-        if name.is_empty() || object.is_empty() {
+        args.push(id);
+        git_bytes(path, &args)
+    };
+    let names = diff("--name-status")?;
+    let mut fields = names.split(|b| *b == 0).filter(|v| !v.is_empty());
+    let mut changes = Vec::new();
+    while let Some(status) = fields.next() {
+        let Some(first) = fields.next() else {
+            bail!("incomplete Git name-status output")
+        };
+        let renamed = status.first() == Some(&b'R');
+        let dest = if renamed {
+            fields.next().context("missing rename destination")?
+        } else {
+            first
+        };
+        let Ok(dest) = std::str::from_utf8(dest) else {
+            eprintln!("warning: skipping non-UTF-8 path in {id}");
             continue;
-        }
-
-        let commit_id = run_git(path, &["rev-list", "-1", object])
-            .unwrap_or_else(|_| object.to_string())
-            .trim()
-            .to_string();
-
-        let timestamp = commits
-            .iter()
-            .find(|commit| commit.id == commit_id)
-            .map(|commit| commit.timestamp)
-            .unwrap_or(timestamp);
-
-        releases.push(ReleaseRecord {
-            name: name.to_string(),
-            commit_id,
-            timestamp,
+        };
+        let old_path = if renamed {
+            let Ok(source) = std::str::from_utf8(first) else {
+                eprintln!("warning: skipping non-UTF-8 rename source in {id}");
+                continue;
+            };
+            Some(source.to_string())
+        } else {
+            None
+        };
+        let kind = match status.first() {
+            Some(b'A') => ChangeKind::Added,
+            Some(b'D') => ChangeKind::Deleted,
+            Some(b'R') => ChangeKind::Renamed,
+            Some(b'M' | b'T') => ChangeKind::Modified,
+            _ => continue,
+        };
+        changes.push(FileChange {
+            path: dest.to_string(),
+            old_path,
+            kind,
+            additions: 0,
+            deletions: 0,
+            lines_after: None,
         });
     }
-
-    releases.sort_by_key(|release| release.timestamp);
-    releases.dedup_by(|a, b| a.name == b.name && a.commit_id == b.commit_id);
-
-    Ok(releases)
-}
-
-fn parse_log(log: &str) -> Result<(Vec<CommitRecord>, Vec<AuthorRecord>)> {
-    let mut commits = Vec::new();
-    let mut current: Option<CommitRecord> = None;
-    let mut authors: BTreeMap<String, AuthorRecord> = BTreeMap::new();
-
-    for raw_line in log.lines() {
-        let line = raw_line.trim_end_matches('\r');
-
-        if line.starts_with(COMMIT_PREFIX) {
-            if let Some(commit) = current.take() {
-                commits.push(commit);
-            }
-
-            let fields = line.split(FIELD_SEP).collect::<Vec<_>>();
-            if fields.len() < 7 {
-                bail!("malformed commit metadata line: {line}");
-            }
-
-            let id = fields[1].to_string();
-            let parents = fields[2]
-                .split_whitespace()
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            let email = fields[3].to_string();
-            let name = fields[4].to_string();
-            let timestamp = fields[5]
-                .parse::<i64>()
-                .with_context(|| format!("invalid commit timestamp in {id}"))?;
-            let message = fields[6..].join(&FIELD_SEP.to_string());
-
-            let author_id = if email.is_empty() {
-                name.clone()
-            } else {
-                email.clone()
-            };
-
-            authors
-                .entry(author_id.clone())
-                .and_modify(|record| {
-                    record.commit_count += 1;
-                    record.first_commit_at = record.first_commit_at.min(timestamp);
-                    record.last_commit_at = record.last_commit_at.max(timestamp);
-                })
-                .or_insert_with(|| AuthorRecord {
-                    id: author_id.clone(),
-                    name: name.clone(),
-                    email: (!email.is_empty()).then_some(email),
-                    commit_count: 1,
-                    first_commit_at: timestamp,
-                    last_commit_at: timestamp,
-                });
-
-            current = Some(CommitRecord {
-                id,
-                parents,
-                author_id,
-                author_name: name,
-                timestamp,
-                message,
-                changes: Vec::new(),
-            });
-
+    let stats = diff("--numstat")?;
+    let mut fields = stats.split(|b| *b == 0);
+    while let Some(entry) = fields.next() {
+        if entry.is_empty() {
             continue;
         }
-
-        if line.is_empty() {
+        let mut parts = entry.splitn(3, |b| *b == b'\t');
+        let added = parts.next().unwrap_or_default();
+        let deleted = parts.next().unwrap_or_default();
+        let Some(mut dest) = parts.next() else {
             continue;
+        };
+        if dest.is_empty() {
+            fields.next(); // old rename path
+            dest = fields
+                .next()
+                .context("missing numstat rename destination")?;
         }
-
-        if let Some(commit) = current.as_mut() {
-            if let Some(change) = parse_name_status(line) {
-                commit.changes.push(change);
-            }
-        }
-    }
-
-    if let Some(commit) = current.take() {
-        commits.push(commit);
-    }
-
-    Ok((commits, authors.into_values().collect()))
-}
-
-fn parse_name_status(line: &str) -> Option<FileChange> {
-    let fields = line.split('\t').collect::<Vec<_>>();
-    if fields.len() < 2 {
-        return None;
-    }
-
-    let status = fields[0];
-    let code = status.chars().next()?;
-
-    match code {
-        'A' => Some(FileChange {
-            path: fields[1].to_string(),
-            old_path: None,
-            kind: ChangeKind::Added,
-            additions: 0,
-            deletions: 0,
-            lines_after: None,
-        }),
-        'M' | 'T' => Some(FileChange {
-            path: fields[1].to_string(),
-            old_path: None,
-            kind: ChangeKind::Modified,
-            additions: 0,
-            deletions: 0,
-            lines_after: None,
-        }),
-        'D' => Some(FileChange {
-            path: fields[1].to_string(),
-            old_path: None,
-            kind: ChangeKind::Deleted,
-            additions: 0,
-            deletions: 0,
-            lines_after: Some(0),
-        }),
-        'R' if fields.len() >= 3 => Some(FileChange {
-            path: fields[2].to_string(),
-            old_path: Some(fields[1].to_string()),
-            kind: ChangeKind::Renamed,
-            additions: 0,
-            deletions: 0,
-            lines_after: None,
-        }),
-        'C' if fields.len() >= 3 => Some(FileChange {
-            path: fields[2].to_string(),
-            old_path: Some(fields[1].to_string()),
-            kind: ChangeKind::Added,
-            additions: 0,
-            deletions: 0,
-            lines_after: None,
-        }),
-        _ => None,
-    }
-}
-
-fn enrich_changes(repo_path: &Path, commits: &mut [CommitRecord]) -> Result<()> {
-    for commit in commits.iter_mut() {
-        let numstat = run_git(
-            repo_path,
-            &[
-                "diff-tree",
-                "--root",
-                "--no-commit-id",
-                "--numstat",
-                "-M",
-                "--find-renames",
-                commit.id.as_str(),
-            ],
-        )?;
-
-        let stats = parse_numstat(&numstat);
-        for change in &mut commit.changes {
-            if let Some((additions, deletions)) = find_numstat(change, &stats) {
-                change.additions = additions.min(u32::MAX as u64) as u32;
-                change.deletions = deletions.min(u32::MAX as u64) as u32;
-            }
-
-            change.lines_after = match change.kind {
-                ChangeKind::Deleted => Some(0),
-                _ => lines_at_commit(repo_path, &commit.id, &change.path),
-            };
+        if let Some(change) = changes.iter_mut().find(|c| c.path.as_bytes() == dest) {
+            change.additions = std::str::from_utf8(added)?.parse().unwrap_or(0);
+            change.deletions = std::str::from_utf8(deleted)?.parse().unwrap_or(0);
         }
     }
-
-    Ok(())
-}
-
-fn parse_numstat(output: &str) -> Vec<(u64, u64, String)> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let fields = line.split('\t').collect::<Vec<_>>();
-            if fields.len() < 3 {
-                return None;
-            }
-
-            let additions = fields[0].parse::<u64>().ok()?;
-            let deletions = fields[1].parse::<u64>().ok()?;
-            Some((additions, deletions, fields[2].to_string()))
-        })
-        .collect()
-}
-
-fn find_numstat(change: &FileChange, stats: &[(u64, u64, String)]) -> Option<(u64, u64)> {
-    stats.iter().find_map(|(additions, deletions, path)| {
-        let normalized = path.replace(['{', '}'], "");
-        let candidates = normalized.split(" => ").map(str::trim).collect::<Vec<_>>();
-
-        let matches = candidates.iter().any(|candidate| {
-            *candidate == change.path
-                || change
-                    .old_path
-                    .as_deref()
-                    .is_some_and(|old| *candidate == old)
-        });
-
-        matches.then_some((*additions, *deletions))
-    })
+    Ok(changes)
 }
 
 fn build_file_records(commits: &[CommitRecord]) -> Vec<FileRecord> {
-    let mut files: BTreeMap<String, FileAccumulator> = BTreeMap::new();
-
+    let mut files = BTreeMap::<String, FileRecord>::new();
+    let mut active = BTreeMap::<String, String>::new();
     for (commit_index, commit) in commits.iter().enumerate() {
+        let before = commit
+            .changes
+            .iter()
+            .filter_map(|change| {
+                let source = change.old_path.as_deref().unwrap_or(&change.path);
+                active
+                    .get(source)
+                    .map(|id| (source.to_string(), id.clone()))
+            })
+            .collect::<BTreeMap<_, _>>();
         for change in &commit.changes {
-            let lines = change.lines_after.unwrap_or(0);
-            match change.kind {
-                ChangeKind::Added | ChangeKind::Modified => {
-                    let entry =
-                        files
-                            .entry(change.path.clone())
-                            .or_insert_with(|| FileAccumulator {
-                                id: change.path.clone(),
-                                path: change.path.clone(),
-                                directory: directory_of(&change.path),
-                                created_at: commit.timestamp,
-                                deleted_at: None,
-                                last_modified_at: commit.timestamp,
-                                commit_count: 0,
-                                additions: 0,
-                                deletions: 0,
-                                authors: BTreeMap::new(),
-                                history: Vec::new(),
-                            });
-
-                    if change.kind == ChangeKind::Added && entry.deleted_at.is_some() {
-                        entry.created_at = commit.timestamp;
-                    }
-
-                    entry.deleted_at = None;
-                    entry.last_modified_at = commit.timestamp;
-                    entry.commit_count += 1;
-                    entry.additions += change.additions as u64;
-                    entry.deletions += change.deletions as u64;
-                    apply_author(
-                        entry,
-                        commit,
-                        change.additions as u64,
-                        change.deletions as u64,
-                    );
-                    entry.history.push(FileSnapshot {
-                        commit_id: commit.id.clone(),
-                        commit_index,
-                        timestamp: commit.timestamp,
-                        path: change.path.clone(),
-                        lines,
-                        additions: change.additions as u64,
-                        deletions: change.deletions as u64,
-                        author_id: commit.author_id.clone(),
-                        kind: change.kind,
-                    });
-                }
-                ChangeKind::Deleted => {
-                    if let Some(entry) = files.get_mut(&change.path) {
-                        entry.last_modified_at = commit.timestamp;
-                        entry.deleted_at = Some(commit.timestamp);
-                        entry.commit_count += 1;
-                        entry.additions += change.additions as u64;
-                        entry.deletions += change.deletions as u64;
-                        apply_author(
-                            entry,
-                            commit,
-                            change.additions as u64,
-                            change.deletions as u64,
-                        );
-                        entry.history.push(FileSnapshot {
-                            commit_id: commit.id.clone(),
-                            commit_index,
-                            timestamp: commit.timestamp,
-                            path: change.path.clone(),
-                            lines: 0,
-                            additions: change.additions as u64,
-                            deletions: change.deletions as u64,
-                            author_id: commit.author_id.clone(),
-                            kind: ChangeKind::Deleted,
-                        });
-                    }
-                }
-                ChangeKind::Renamed => {
-                    let old_path = change.old_path.as_deref().unwrap_or(&change.path);
-                    if let Some(mut entry) = files.remove(old_path) {
-                        entry.path = change.path.clone();
-                        entry.directory = directory_of(&change.path);
-                        entry.deleted_at = None;
-                        entry.last_modified_at = commit.timestamp;
-                        entry.commit_count += 1;
-                        entry.additions += change.additions as u64;
-                        entry.deletions += change.deletions as u64;
-                        apply_author(
-                            &mut entry,
-                            commit,
-                            change.additions as u64,
-                            change.deletions as u64,
-                        );
-                        entry.history.push(FileSnapshot {
-                            commit_id: commit.id.clone(),
-                            commit_index,
-                            timestamp: commit.timestamp,
-                            path: change.path.clone(),
-                            lines,
-                            additions: change.additions as u64,
-                            deletions: change.deletions as u64,
-                            author_id: commit.author_id.clone(),
-                            kind: ChangeKind::Renamed,
-                        });
-                        files.insert(change.path.clone(), entry);
-                    } else {
-                        let mut entry = FileAccumulator {
-                            id: old_path.to_string(),
-                            path: change.path.clone(),
-                            directory: directory_of(&change.path),
-                            created_at: commit.timestamp,
-                            deleted_at: None,
-                            last_modified_at: commit.timestamp,
-                            commit_count: 1,
-                            additions: change.additions as u64,
-                            deletions: change.deletions as u64,
-                            authors: BTreeMap::new(),
-                            history: Vec::new(),
-                        };
-                        apply_author(
-                            &mut entry,
-                            commit,
-                            change.additions as u64,
-                            change.deletions as u64,
-                        );
-                        entry.history.push(FileSnapshot {
-                            commit_id: commit.id.clone(),
-                            commit_index,
-                            timestamp: commit.timestamp,
-                            path: change.path.clone(),
-                            lines,
-                            additions: change.additions as u64,
-                            deletions: change.deletions as u64,
-                            author_id: commit.author_id.clone(),
-                            kind: ChangeKind::Renamed,
-                        });
-                        files.insert(change.path.clone(), entry);
-                    }
-                }
+            if matches!(change.kind, ChangeKind::Deleted | ChangeKind::Renamed) {
+                active.remove(change.old_path.as_deref().unwrap_or(&change.path));
             }
         }
-    }
-
-    files
-        .into_values()
-        .map(|file| FileRecord {
-            id: file.id,
-            path: file.path,
-            directory: file.directory,
-            created_at: file.created_at,
-            deleted_at: file.deleted_at,
-            last_modified_at: file.last_modified_at,
-            commit_count: file.commit_count,
-            additions: file.additions,
-            deletions: file.deletions,
-            current_lines: if file.deleted_at.is_none() {
-                file.history
-                    .last()
-                    .map(|snapshot| snapshot.lines)
-                    .unwrap_or(0)
+        for change in &commit.changes {
+            let source = change.old_path.as_deref().unwrap_or(&change.path);
+            let id = match change.kind {
+                ChangeKind::Added => format!("{}:{}", commit.id, change.path),
+                _ => before
+                    .get(source)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}:{}", commit.id, source)),
+            };
+            if change.kind != ChangeKind::Deleted {
+                active.insert(change.path.clone(), id.clone());
+            }
+            let file = files.entry(id.clone()).or_insert_with(|| FileRecord {
+                id,
+                path: change.path.clone(),
+                directory: directory_of(&change.path),
+                created_at: commit.timestamp,
+                deleted_at: None,
+                last_modified_at: commit.timestamp,
+                commit_count: 0,
+                additions: 0,
+                deletions: 0,
+                current_lines: 0,
+                authors: Vec::new(),
+                history: Vec::new(),
+            });
+            file.path = change.path.clone();
+            file.directory = directory_of(&change.path);
+            file.deleted_at = (change.kind == ChangeKind::Deleted).then_some(commit.timestamp);
+            file.last_modified_at = commit.timestamp;
+            file.commit_count += 1;
+            file.additions += u64::from(change.additions);
+            file.deletions += u64::from(change.deletions);
+            file.current_lines = change.lines_after.unwrap_or(0);
+            if let Some(author) = file
+                .authors
+                .iter_mut()
+                .find(|a| a.author_id == commit.author_id)
+            {
+                author.commits += 1;
+                author.additions += u64::from(change.additions);
+                author.deletions += u64::from(change.deletions);
             } else {
-                0
-            },
-            authors: file.authors.into_values().collect(),
-            history: file.history,
-        })
-        .collect()
-}
-
-fn apply_author(file: &mut FileAccumulator, commit: &CommitRecord, additions: u64, deletions: u64) {
-    file.authors
-        .entry(commit.author_id.clone())
-        .and_modify(|author| {
-            author.commits += 1;
-            author.additions += additions;
-            author.deletions += deletions;
-        })
-        .or_insert_with(|| AuthorContribution {
-            author_id: commit.author_id.clone(),
-            additions,
-            deletions,
-            commits: 1,
-        });
-}
-
-fn lines_at_commit(repo_path: &Path, commit_id: &str, file_path: &str) -> Option<u64> {
-    let spec = format!("{commit_id}:{file_path}");
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["show", "--format=", &spec])
-        .output()
-        .ok()?;
-
-    if !output.status.success() || output.stdout.contains(&0) {
-        return None;
+                file.authors.push(AuthorContribution {
+                    author_id: commit.author_id.clone(),
+                    additions: u64::from(change.additions),
+                    deletions: u64::from(change.deletions),
+                    commits: 1,
+                });
+            }
+            file.history.push(FileSnapshot {
+                commit_id: commit.id.clone(),
+                commit_index,
+                timestamp: commit.timestamp,
+                path: change.path.clone(),
+                lines: file.current_lines,
+                additions: u64::from(change.additions),
+                deletions: u64::from(change.deletions),
+                author_id: commit.author_id.clone(),
+                kind: change.kind,
+            });
+        }
     }
-
-    Some(count_lines(&output.stdout))
+    files.into_values().collect()
 }
 
-fn count_lines(data: &[u8]) -> u64 {
-    if data.is_empty() {
-        0
-    } else {
-        data.iter().filter(|byte| **byte == b'\n').count() as u64
-            + u64::from(data.last() != Some(&b'\n'))
+/// One persistent Git process instead of spawning git show for every file.
+struct BlobReader {
+    child: Child,
+    input: ChildStdin,
+    output: BufReader<ChildStdout>,
+}
+impl BlobReader {
+    fn new(path: &Path) -> Result<Self> {
+        let mut child = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["cat-file", "--batch", "-z"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let input = child.stdin.take().context("Git stdin unavailable")?;
+        let output = BufReader::new(child.stdout.take().context("Git stdout unavailable")?);
+        Ok(Self {
+            child,
+            input,
+            output,
+        })
+    }
+    fn lines(&mut self, spec: &str) -> Result<Option<u64>> {
+        self.input.write_all(spec.as_bytes())?;
+        self.input.write_all(&[0])?;
+        self.input.flush()?;
+        let mut header = String::new();
+        self.output.read_line(&mut header)?;
+        let fields: Vec<_> = header.split_whitespace().collect();
+        if fields.last() == Some(&"missing") {
+            return Ok(None);
+        }
+        if fields.len() != 3 {
+            bail!("invalid Git blob header");
+        }
+        let mut remaining = fields[2].parse::<usize>()?;
+        let mut buffer = [0; 8192];
+        let mut lines = 0;
+        let mut binary = false;
+        let mut last = None;
+        while remaining > 0 {
+            let size = remaining.min(buffer.len());
+            self.output.read_exact(&mut buffer[..size])?;
+            binary |= buffer[..size].contains(&0);
+            lines += buffer[..size].iter().filter(|b| **b == b'\n').count() as u64;
+            last = Some(buffer[size - 1]);
+            remaining -= size;
+        }
+        self.output.read_exact(&mut buffer[..1])?;
+        Ok((!binary).then_some(lines + u64::from(last.is_some() && last != Some(b'\n'))))
     }
 }
-
+impl Drop for BlobReader {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
 fn directory_of(path: &str) -> String {
-    Path::new(path)
-        .parent()
-        .and_then(Path::to_str)
-        .filter(|directory| !directory.is_empty())
+    path.rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .filter(|dir| !dir.is_empty())
         .unwrap_or("_root")
         .to_string()
 }
-
-fn run_git(repo_path: &Path, args: &[&str]) -> Result<String> {
+fn git_bytes(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let output = Command::new("git")
         .arg("-C")
-        .arg(repo_path)
+        .arg(path)
         .args(args)
         .output()
-        .with_context(|| format!("failed to execute git {}", args.join(" ")))?;
-
+        .context("failed to execute Git")?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git {} failed: {}", args.join(" "), stderr.trim());
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(output.stdout)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_modified_file() {
-        let change = parse_name_status("M\tsrc/main.rs").expect("change");
-        assert!(matches!(change.kind, ChangeKind::Modified));
-        assert_eq!(change.path, "src/main.rs");
-    }
-
-    #[test]
-    fn parses_rename() {
-        let change = parse_name_status("R100\told.rs\tnew.rs").expect("change");
-        assert!(matches!(change.kind, ChangeKind::Renamed));
-        assert_eq!(change.old_path.as_deref(), Some("old.rs"));
-        assert_eq!(change.path, "new.rs");
-    }
-
-    #[test]
-    fn parses_numstat() {
-        let stats = parse_numstat("4\t2\tsrc/main.rs\n-\t-\timage.png\n");
-        assert_eq!(stats.len(), 1);
-        assert_eq!(stats[0].0, 4);
-        assert_eq!(stats[0].1, 2);
-    }
+fn run_git(path: &Path, args: &[&str]) -> Result<String> {
+    String::from_utf8(git_bytes(path, args)?).context("non-UTF-8 Git metadata")
 }
