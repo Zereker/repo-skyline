@@ -47,6 +47,7 @@ export type TimelineCommit = {
   id: string;
   timestamp: number;
   author: string;
+  author_id?: string;
   message: string;
   changes: CityEvent[];
   releases: string[];
@@ -56,6 +57,7 @@ export type CityRoad = {
   from: string;
   to: string;
   weight: number;
+  commit_indices?: number[];
 };
 
 export type ReleaseMarker = {
@@ -93,3 +95,13 @@ export type CityProject = {
   milestones: StoryMilestone[];
   roads?: CityRoad[];
 };
+
+export type ViewMode =
+  | "district"
+  | "territory"
+  | "activity"
+  | "ghost"
+  | "risk"
+  | "bugs"
+  | "architecture"
+  | "provenance";

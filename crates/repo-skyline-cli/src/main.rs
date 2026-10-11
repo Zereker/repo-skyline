@@ -95,6 +95,23 @@ fn limit_buildings(city: &mut city_model::CityProject, limit: usize) {
             .retain(|building| keep.contains(&building.id));
     }
 
-    city.districts
-        .retain(|district| !district.buildings.is_empty());
+    let historical_directories = city
+        .districts
+        .iter()
+        .flat_map(|district| district.buildings.iter())
+        .flat_map(|building| building.history.iter())
+        .map(|snapshot| {
+            snapshot
+                .path
+                .rsplit_once('/')
+                .map(|(dir, _)| dir)
+                .unwrap_or("_root")
+                .to_string()
+        })
+        .collect::<HashSet<_>>();
+    city.districts.retain(|district| {
+        !district.buildings.is_empty() || historical_directories.contains(&district.path)
+    });
+    city.roads
+        .retain(|road| keep.contains(&road.from) && keep.contains(&road.to));
 }

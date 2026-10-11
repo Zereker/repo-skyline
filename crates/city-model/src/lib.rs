@@ -1,6 +1,6 @@
 use repository_model::{ChangeKind, FileSnapshot, RepositoryHistory};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CityProject {
@@ -39,6 +39,7 @@ pub struct TimelineCommit {
     pub id: String,
     pub timestamp: i64,
     pub author: String,
+    pub author_id: String,
     pub message: String,
     pub changes: Vec<CityEvent>,
     pub releases: Vec<String>,
@@ -68,6 +69,7 @@ pub struct CityRoad {
     pub from: String,
     pub to: String,
     pub weight: u32,
+    pub commit_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +93,9 @@ pub struct StoryMilestone {
 #[serde(rename_all = "snake_case")]
 pub enum StoryMilestoneKind {
     FirstCommit,
+    #[serde(rename = "commit_100")]
     Commit100,
+    #[serde(rename = "commit_1000")]
     Commit1000,
     FirstMajorContributor,
     LargestChange,
@@ -120,7 +124,12 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
                 primary_author: file
                     .authors
                     .iter()
-                    .max_by_key(|contribution| contribution.commits)
+                    .max_by(|a, b| {
+                        a.additions
+                            .cmp(&b.additions)
+                            .then(a.commits.cmp(&b.commits))
+                            .then_with(|| b.author_id.cmp(&a.author_id))
+                    })
                     .map(|contribution| contribution.author_id.clone()),
                 created_at: file.created_at,
                 deleted_at: file.deleted_at,
@@ -148,6 +157,7 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
             id: commit.id.clone(),
             timestamp: commit.timestamp,
             author: commit.author_name.clone(),
+            author_id: commit.author_id.clone(),
             message: commit.message.clone(),
             releases: history
                 .releases
@@ -199,40 +209,48 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
 }
 
 fn derive_cochange_roads(history: &RepositoryHistory) -> Vec<CityRoad> {
-    let mut path_to_id = HashMap::<String, String>::new();
+    let mut by_commit = BTreeMap::<usize, Vec<String>>::new();
     for file in &history.files {
-        path_to_id.insert(file.path.clone(), file.id.clone());
         for snapshot in &file.history {
-            path_to_id.insert(snapshot.path.clone(), file.id.clone());
+            by_commit
+                .entry(snapshot.commit_index)
+                .or_default()
+                .push(file.id.clone());
         }
     }
-
-    let mut weights = HashMap::<(String, String), u32>::new();
-
-    for commit in &history.commits {
-        let mut ids = commit
-            .changes
-            .iter()
-            .filter_map(|change| path_to_id.get(&change.path).cloned())
-            .collect::<Vec<_>>();
+    let mut pairs = BTreeMap::<(String, String), Vec<usize>>::new();
+    for (index, mut ids) in by_commit {
         ids.sort();
         ids.dedup();
-
+        // Bulk imports are not evidence of architectural coupling. Bound work.
+        if ids.len() > 200 {
+            continue;
+        }
         for left in 0..ids.len() {
             for right in (left + 1)..ids.len() {
-                let key = (ids[left].clone(), ids[right].clone());
-                *weights.entry(key).or_default() += 1;
+                pairs
+                    .entry((ids[left].clone(), ids[right].clone()))
+                    .or_default()
+                    .push(index);
             }
         }
     }
-
-    let mut roads = weights
+    let mut roads = pairs
         .into_iter()
-        .filter(|(_, weight)| *weight >= 2)
-        .map(|((from, to), weight)| CityRoad { from, to, weight })
+        .filter(|(_, indices)| indices.len() >= 2)
+        .map(|((from, to), commit_indices)| CityRoad {
+            from,
+            to,
+            weight: commit_indices.len() as u32,
+            commit_indices,
+        })
         .collect::<Vec<_>>();
-
-    roads.sort_by(|a, b| b.weight.cmp(&a.weight).then_with(|| a.from.cmp(&b.from)));
+    roads.sort_by(|a, b| {
+        b.weight
+            .cmp(&a.weight)
+            .then(a.from.cmp(&b.from))
+            .then(a.to.cmp(&b.to))
+    });
     roads.truncate(120);
     roads
 }
@@ -271,26 +289,20 @@ fn derive_milestones(
         }
     }
 
-    if let Some(author) = history
-        .authors
-        .iter()
-        .max_by_key(|author| author.commit_count)
-    {
-        if author.commit_count >= 3 {
-            if let Some(commit) = timeline.iter().find(|commit| commit.author == author.name) {
-                milestones.push(StoryMilestone {
-                    id: "first-major-contributor".to_string(),
-                    kind: StoryMilestoneKind::FirstMajorContributor,
-                    title: "Major builder emerges".to_string(),
-                    description: format!(
-                        "{} became the most active builder with {} commits.",
-                        author.name, author.commit_count
-                    ),
-                    commit_id: commit.id.clone(),
-                    timestamp: commit.timestamp,
-                });
-            }
-        }
+    let mut author_counts = BTreeMap::<String, u32>::new();
+    if let Some(commit) = history.commits.iter().find(|commit| {
+        let count = author_counts.entry(commit.author_id.clone()).or_default();
+        *count += 1;
+        *count == 3
+    }) {
+        milestones.push(StoryMilestone {
+            id: "first-major-contributor".to_string(),
+            kind: StoryMilestoneKind::FirstMajorContributor,
+            title: "Major builder emerges".to_string(),
+            description: format!("{} reaches three mainline commits.", commit.author_name),
+            commit_id: commit.id.clone(),
+            timestamp: commit.timestamp,
+        });
     }
 
     if let Some(largest) = timeline
@@ -299,7 +311,7 @@ fn derive_milestones(
             commit
                 .changes
                 .iter()
-                .map(|change| (change.additions + change.deletions) as usize)
+                .map(|change| change.additions as usize + change.deletions as usize)
                 .sum::<usize>()
         })
         .filter(|commit| commit.changes.len() >= 2)
@@ -411,42 +423,39 @@ fn derive_milestones(
         }
     }
 
-    let mut seen_authors = HashMap::<String, String>::new();
-    for (commit_index, commit) in history.commits.iter().enumerate() {
-        for change in &commit.changes {
-            if let Some(file) = history.files.iter().find(|file| {
-                file.history
-                    .iter()
-                    .any(|snapshot| snapshot.path == change.path)
-            }) {
-                if let Some(previous) = file
-                    .history
-                    .iter()
-                    .rfind(|snapshot| snapshot.commit_index < commit_index)
-                {
-                    if previous.author_id != commit.author_id {
-                        let key = file.id.clone();
-                        if seen_authors
-                            .insert(key, previous.author_id.clone())
-                            .is_none()
-                        {
-                            milestones.push(StoryMilestone {
-                                id: format!("ownership-{}", commit.id),
-                                kind: StoryMilestoneKind::OwnershipTransition,
-                                title: "Ownership changes".to_string(),
-                                description: format!(
-                                    "A file changed hands from {} to {}.",
-                                    previous.author_id, commit.author_id
-                                ),
-                                commit_id: commit.id.clone(),
-                                timestamp: commit.timestamp,
-                            });
-                        }
-                    }
+    let mut transitions = Vec::new();
+    for file in &history.files {
+        let mut scores = BTreeMap::<String, (u64, u32)>::new();
+        let mut previous: Option<String> = None;
+        for snapshot in &file.history {
+            let score = scores.entry(snapshot.author_id.clone()).or_default();
+            score.0 += snapshot.additions;
+            score.1 += 1;
+            let owner = scores
+                .iter()
+                .max_by(|(a_id, a), (b_id, b)| a.cmp(b).then_with(|| b_id.cmp(a_id)))
+                .map(|(id, _)| id.clone());
+            if let (Some(before), Some(after)) = (&previous, &owner) {
+                if before != after {
+                    transitions.push(StoryMilestone {
+                        id: format!("ownership-{}-{}", snapshot.commit_id, file.id),
+                        kind: StoryMilestoneKind::OwnershipTransition,
+                        title: "Ownership changes".to_string(),
+                        description: format!(
+                            "{}: cumulative additions leader changes from {} to {}.",
+                            snapshot.path, before, after
+                        ),
+                        commit_id: snapshot.commit_id.clone(),
+                        timestamp: snapshot.timestamp,
+                    });
+                    break;
                 }
             }
+            previous = owner;
         }
     }
+    transitions.sort_by_key(|m| timeline.iter().position(|c| c.id == m.commit_id));
+    milestones.extend(transitions.into_iter().take(8));
 
     let release_count = history.releases.len();
     for release in history
@@ -464,7 +473,11 @@ fn derive_milestones(
         });
     }
 
-    milestones.sort_by_key(|milestone| milestone.timestamp);
+    milestones.sort_by_key(|milestone| {
+        timeline
+            .iter()
+            .position(|commit| commit.id == milestone.commit_id)
+    });
     milestones.dedup_by(|a, b| {
         a.commit_id == b.commit_id
             && std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind)
@@ -493,4 +506,153 @@ fn directory_of(path: &str) -> String {
         .filter(|directory| !directory.is_empty())
         .unwrap_or("_root")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use repository_model::{
+        AuthorContribution, AuthorRecord, CommitRecord, FileChange, FileRecord, RepositoryMeta,
+    };
+    fn history() -> RepositoryHistory {
+        let snapshots: Vec<FileSnapshot> = (0..4)
+            .map(|i| FileSnapshot {
+                commit_id: format!("c{i}"),
+                commit_index: i,
+                timestamp: 100 - (i as i64),
+                path: "src/a".into(),
+                lines: 10 + i as u64,
+                additions: if i == 0 { 10 } else { 1 },
+                deletions: 0,
+                author_id: if i == 0 { "alice" } else { "bob" }.into(),
+                kind: if i == 0 {
+                    ChangeKind::Added
+                } else {
+                    ChangeKind::Modified
+                },
+            })
+            .collect();
+        let commits = snapshots
+            .iter()
+            .map(|s| CommitRecord {
+                id: s.commit_id.clone(),
+                parents: vec![],
+                author_id: s.author_id.clone(),
+                author_name: s.author_id.clone(),
+                timestamp: s.timestamp,
+                message: "update".into(),
+                changes: vec![FileChange {
+                    path: s.path.clone(),
+                    old_path: None,
+                    kind: s.kind,
+                    additions: s.additions as u32,
+                    deletions: 0,
+                    lines_after: Some(s.lines),
+                }],
+            })
+            .collect();
+        RepositoryHistory {
+            repository: RepositoryMeta {
+                name: "test".into(),
+                first_commit_at: Some(100),
+                last_commit_at: Some(97),
+                head: Some("c3".into()),
+            },
+            commits,
+            files: vec![FileRecord {
+                id: "file".into(),
+                path: "src/a".into(),
+                directory: "src".into(),
+                created_at: 100,
+                deleted_at: None,
+                last_modified_at: 97,
+                commit_count: 4,
+                additions: 13,
+                deletions: 0,
+                current_lines: 13,
+                authors: vec![
+                    AuthorContribution {
+                        author_id: "alice".into(),
+                        additions: 10,
+                        deletions: 0,
+                        commits: 1,
+                    },
+                    AuthorContribution {
+                        author_id: "bob".into(),
+                        additions: 3,
+                        deletions: 0,
+                        commits: 3,
+                    },
+                ],
+                history: snapshots,
+            }],
+            authors: vec![AuthorRecord {
+                id: "bob".into(),
+                name: "bob".into(),
+                email: None,
+                commit_count: 3,
+                first_commit_at: 97,
+                last_commit_at: 99,
+            }],
+            releases: vec![],
+        }
+    }
+    #[test]
+    fn ownership_uses_contribution_not_last_editor_and_story_uses_lineage() {
+        let mut history = history();
+        let city = project_city(&history);
+        assert_eq!(
+            city.districts[0].buildings[0].primary_author.as_deref(),
+            Some("alice")
+        );
+        assert!(!city
+            .milestones
+            .iter()
+            .any(|m| matches!(m.kind, StoryMilestoneKind::OwnershipTransition)));
+        assert_eq!(
+            city.milestones
+                .iter()
+                .find(|m| matches!(m.kind, StoryMilestoneKind::FirstMajorContributor))
+                .unwrap()
+                .commit_id,
+            "c3"
+        );
+        assert_eq!(city.milestones[0].commit_id, "c0");
+        history.files[0].history[3].additions = 20;
+        let city = project_city(&history);
+        assert_eq!(
+            city.milestones
+                .iter()
+                .find(|m| matches!(m.kind, StoryMilestoneKind::OwnershipTransition))
+                .unwrap()
+                .commit_id,
+            "c3"
+        );
+    }
+    #[test]
+    fn roads_resolve_file_identity_per_commit_and_are_deterministic() {
+        let mut history = history();
+        let mut other = history.files[0].clone();
+        other.id = "other".into();
+        other.history.retain(|s| s.commit_index >= 2);
+        other
+            .history
+            .iter_mut()
+            .for_each(|s| s.path = "other/a".into());
+        history.files.push(other);
+        let roads = derive_cochange_roads(&history);
+        assert_eq!(roads.len(), 1);
+        assert_eq!(roads[0].commit_indices, vec![2, 3]);
+        assert_eq!(roads[0].weight, 2);
+        assert_eq!(derive_cochange_roads(&history)[0].to, roads[0].to);
+        history.files[1].history.retain(|s| s.commit_index >= 3);
+        assert!(derive_cochange_roads(&history).is_empty());
+    }
+    #[test]
+    fn calendar_month_is_exact_at_year_and_leap_boundaries() {
+        assert_eq!(month_key(0), "1970-01");
+        assert_eq!(month_key(-1), "1969-12");
+        assert_eq!(month_key(1_709_164_800), "2024-02");
+        assert_eq!(month_key(1_709_251_200), "2024-03");
+    }
 }

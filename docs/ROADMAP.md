@@ -27,3 +27,7 @@
 ## Demo goal
 
 Every visible change in the city must come from real Git history.
+
+## PRD completion iteration
+
+P0/P1 and the named P2 views are implemented with explicit Git-evidence semantics. See [ACCEPTANCE.md](ACCEPTANCE.md) for scope and checks. Further work: benchmark large repositories, improve analytical precision with optional external evidence, and add recording/export.

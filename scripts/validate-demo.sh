@@ -12,7 +12,10 @@ cargo run -p repo-skyline-cli -- analyze "$ROOT" -o "$ROOT/apps/web/public/city.
 
 echo "==> Web install"
 cd "$ROOT/apps/web"
-npm install
+npm ci
+
+echo "==> Web unit tests"
+npm test
 
 echo "==> Web build"
 npm run build
