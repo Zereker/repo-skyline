@@ -1,8 +1,9 @@
-import { Html, OrbitControls } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import type { Mesh, MeshStandardMaterial } from "three";
 import { PerspectiveCamera, Vector3 } from "three";
+import DistrictLabel from "./DistrictLabel";
 import InstancedBuildings from "./InstancedBuildings";
 import BuildingMesh from "./BuildingMesh";
 import type { PlacedBuilding, PlacedDistrict } from "./cityLayout";
@@ -439,18 +440,14 @@ export default function CityScene({
             />
           </mesh>
 
-          <Html
+          <DistrictLabel
+            path={district.path}
             position={[
               district.x,
               1.1,
               district.z - Math.max(1.5, district.depth / 2 - 0.8),
             ]}
-            center
-            distanceFactor={30}
-            style={{ pointerEvents: "none" }}
-          >
-            <span className="district-label">{district.path}</span>
-          </Html>
+          />
 
           {compact ? (
             <InstancedBuildings

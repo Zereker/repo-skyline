@@ -71,3 +71,14 @@ npm run test:e2e
 Browser checks need Playwright Chromium (`npx playwright install chromium`), or a
 local executable selected with `SKYLINE_BROWSER_PATH`. CI checks out full Git
 history, generates a real city and runs unit, build and browser checks.
+
+## Local verification — 2026-10-11
+
+- Rust formatting and strict Clippy: passed.
+- Rust tests: 9 passed, including merge/rename/recreation/overwrite, binary/bare/shallow and ownership/road projection fixtures.
+- Web unit tests: 6 passed.
+- TypeScript and production build: passed.
+- Chromium browser checks: 4 passed, including a real 500-file Git fixture, tag badges, shared geometry, import, contributor/file inspection, all views, playback/story exclusivity and mobile controls.
+- Real Repo Skyline analysis: 121 mainline commits replayed; the 5-building cap preserved all 121 commits and valid road endpoints.
+
+Remote GitHub Actions results remain the authority for CI on the submitted PR.
