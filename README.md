@@ -6,6 +6,7 @@ Repo Skyline turns Git history into a living city. Directories become districts,
 
 ## Docs
 
+- [使用指南（中文）](docs/USER_GUIDE.md)
 - [Product Requirements](docs/PRD.md)
 - [Technical Design](docs/TECHNICAL_DESIGN.md)
 - [Roadmap](docs/ROADMAP.md)
