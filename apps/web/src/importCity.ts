@@ -15,7 +15,7 @@ const kinds = new Set(["added", "modified", "deleted", "renamed"]);
 export function parseCity(input: unknown): CityProject {
   const invalid = () => {
     throw new Error(
-      "Invalid city JSON. Generate it with repo-skyline analyze <repository> -o city.json.",
+      "城市 JSON 无效。请使用 repo-skyline analyze <仓库路径> -o city.json 生成。",
     );
   };
   if (
@@ -98,7 +98,7 @@ export function parseCity(input: unknown): CityProject {
       }
     }
   }
-  for (const key of ["releases", "milestones", "roads"])
+  for (const key of ["releases", "milestones", "roads", "contributors"])
     if (input[key] == null) input[key] = [];
   if (
     !Array.isArray(input.releases) ||
@@ -106,6 +106,18 @@ export function parseCity(input: unknown): CityProject {
     !Array.isArray(input.roads)
   )
     return invalid();
+  for (const person of input.contributors as unknown[]) {
+    if (
+      !object(person) ||
+      !text(person.id) ||
+      !text(person.name) ||
+      !nonnegative(person.mainline_commits) ||
+      !nonnegative(person.merged_commits) ||
+      !integer(person.first_commit_at) ||
+      !integer(person.last_commit_at)
+    )
+      return invalid();
+  }
   for (const release of input.releases)
     if (
       !object(release) ||

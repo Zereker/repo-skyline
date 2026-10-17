@@ -90,6 +90,9 @@ pub struct AuthorRecord {
     pub name: String,
     pub email: Option<String>,
     pub commit_count: u32,
+    /// Commits authored on side branches that entered through a merge commit.
+    /// They are not replayed in the first-parent timeline, so they are counted separately.
+    pub merged_commits: u32,
     pub first_commit_at: i64,
     pub last_commit_at: i64,
 }

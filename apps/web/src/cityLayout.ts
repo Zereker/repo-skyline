@@ -1,4 +1,5 @@
 import type { Building, CityProject, FileSnapshot } from "./types";
+import { buildingFootprint } from "./buildingScale";
 
 export type PlacedBuilding = Building & {
   x: number;
@@ -35,15 +36,15 @@ export function directoryOf(path: string, depth = Number.MAX_SAFE_INTEGER) {
     : "_root";
 }
 export function colorForContributor(author?: string | null) {
-  return author ? `hsl(${stableHash(author) % 360} 72% 62%)` : "#64748b";
+  return author ? `hsl(${stableHash(author) % 360}, 72%, 62%)` : "#64748b";
 }
 export function colorForDistrict(path: string) {
-  return `hsl(${stableHash(path) % 360} 48% 58%)`;
+  return `hsl(${stableHash(path) % 360}, 48%, 58%)`;
 }
 export function colorForActivity(activity: number) {
-  return `hsl(${Math.max(0, 210 - activity * 30)} 80% ${Math.min(65, 35 + activity * 5)}%)`;
+  return `hsl(${Math.max(0, 210 - activity * 30)}, 80%, ${Math.min(65, 35 + activity * 5)}%)`;
 }
-function slotKey(id: string, path: string) {
+export function slotKey(id: string, path: string) {
   return `${id}\0${path}`;
 }
 
@@ -52,8 +53,24 @@ export function layoutCity(
   directoryDepth = Number.MAX_SAFE_INTEGER,
 ): PlacedDistrict[] {
   const buildings = city.districts.flatMap((d) => d.buildings);
+  const currentSlots = new Set(
+    buildings
+      .filter((b) => b.deleted_at == null)
+      .map((b) => slotKey(b.id, b.path)),
+  );
+  const currentDirectories = new Set(
+    buildings
+      .filter((b) => b.deleted_at == null)
+      .map((b) => directoryOf(b.path, directoryDepth)),
+  );
   const paths = new Map<string, Set<string>>();
+  const lotSizes = new Map<string, number>();
   for (const building of buildings) {
+    const peakLines = Math.max(
+      building.lines,
+      ...(building.history ?? []).map((s) => s.lines),
+    );
+    const lotSize = buildingFootprint(peakLines) * 1.15 + 0.75;
     for (const path of new Set([
       building.path,
       ...(building.history ?? []).map((s) => s.path),
@@ -61,49 +78,90 @@ export function layoutCity(
       const directory = directoryOf(path, directoryDepth);
       if (!paths.has(directory)) paths.set(directory, new Set());
       paths.get(directory)!.add(slotKey(building.id, path));
+      lotSizes.set(slotKey(building.id, path), lotSize);
     }
   }
   const models = [...paths]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([path, keys]) => {
       const ordered = [...keys].sort(
-        (a, b) => stableHash(a) - stableHash(b) || a.localeCompare(b),
+        (a, b) =>
+          Number(currentSlots.has(b)) - Number(currentSlots.has(a)) ||
+          stableHash(a) - stableHash(b) ||
+          a.localeCompare(b),
       );
-      const columns = Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
+      const rowWidth = Math.max(
+        4,
+        Math.sqrt(
+          ordered.reduce((area, key) => area + lotSizes.get(key)! ** 2, 0),
+        ) * 1.15,
+      );
+      const localSlots = new Map<string, { x: number; z: number }>();
+      let x = 0,
+        z = 0,
+        rowDepth = 0,
+        usedWidth = 0;
+      for (const key of ordered) {
+        const size = lotSizes.get(key)!;
+        if (x > 0 && x + size > rowWidth) {
+          x = 0;
+          z += rowDepth;
+          rowDepth = 0;
+        }
+        localSlots.set(key, { x: x + size / 2, z: z + size / 2 });
+        x += size;
+        usedWidth = Math.max(usedWidth, x);
+        rowDepth = Math.max(rowDepth, size);
+      }
       return {
         path,
         ordered,
-        columns,
-        width: Math.max(7, columns * 2.3 + 3),
-        depth: Math.max(7, Math.ceil(ordered.length / columns) * 2.3 + 3),
+        localSlots,
+        width: Math.max(7, usedWidth + 2),
+        depth: Math.max(7, z + rowDepth + 2),
       };
     });
-  const columns = Math.max(1, Math.ceil(Math.sqrt(models.length)));
-  const colWidths = Array.from({ length: columns }, (_, col) =>
-    Math.max(
-      7,
-      ...models.filter((_, i) => i % columns === col).map((m) => m.width),
-    ),
+  // Stable shelf packing avoids the empty boulevards of a uniform district grid.
+  // Historical lots remain reserved, so seeking never shuffles file identities.
+  const orderedModels = [...models].sort(
+    (a, b) =>
+      Number(currentDirectories.has(b.path)) -
+        Number(currentDirectories.has(a.path)) ||
+      b.depth - a.depth ||
+      a.path.localeCompare(b.path),
   );
-  const rowDepths = Array.from(
-    { length: Math.ceil(models.length / columns) },
-    (_, row) =>
-      Math.max(
-        7,
-        ...models.slice(row * columns, (row + 1) * columns).map((m) => m.depth),
-      ),
+  const rowWidth = Math.max(
+    7,
+    ...models.map((m) => m.width),
+    Math.sqrt(
+      models.reduce((area, m) => area + (m.width + 3) * (m.depth + 3), 0),
+    ) * 1.45,
   );
-  const offset = (sizes: number[], index: number) =>
-    sizes.slice(0, index).reduce((s, v) => s + v + 4, 0) + sizes[index] / 2;
-  return models.map((m, i) => {
-    const x = offset(colWidths, i % columns);
-    const z = offset(rowDepths, Math.floor(i / columns));
+  const positions = new Map<string, { x: number; z: number }>();
+  let cursorX = 0,
+    cursorZ = 0,
+    rowDepth = 0;
+  for (const model of orderedModels) {
+    if (cursorX > 0 && cursorX + model.width > rowWidth) {
+      cursorX = 0;
+      cursorZ += rowDepth + 3;
+      rowDepth = 0;
+    }
+    positions.set(model.path, {
+      x: cursorX + model.width / 2,
+      z: cursorZ + model.depth / 2,
+    });
+    cursorX += model.width + 3;
+    rowDepth = Math.max(rowDepth, model.depth);
+  }
+  return models.map((m) => {
+    const { x, z } = positions.get(m.path)!;
     const slots = new Map(
-      m.ordered.map((key, index) => [
+      m.ordered.map((key) => [
         key,
         {
-          x: x - m.width / 2 + 2 + (index % m.columns) * 2.3,
-          z: z - m.depth / 2 + 2 + Math.floor(index / m.columns) * 2.3,
+          x: x - m.width / 2 + 1 + m.localSlots.get(key)!.x,
+          z: z - m.depth / 2 + 1 + m.localSlots.get(key)!.z,
         },
       ]),
     );
@@ -148,6 +206,7 @@ export function activeDistrictsAt(
   districts: PlacedDistrict[],
   commitIndex: number,
   timestamp?: number,
+  resolveZone?: (path: string) => string | undefined,
 ): PlacedDistrict[] {
   const districtMap = new Map(districts.map((d) => [d.path, d]));
   const active = new Map(
@@ -174,7 +233,8 @@ export function activeDistrictsAt(
       continue;
     const previous = history[low - 2];
     const destination = districtMap.get(
-      directoryOf(snapshot.path, districts[0]?.directory_depth),
+      resolveZone?.(snapshot.path) ??
+        directoryOf(snapshot.path, districts[0]?.directory_depth),
     );
     if (!destination) continue;
     const point = destination.slots.get(slotKey(building.id, snapshot.path))!;
@@ -183,7 +243,10 @@ export function activeDistrictsAt(
       snapshot.commit_index === commitIndex &&
       previous
         ? districtMap
-            .get(directoryOf(previous.path, districts[0]?.directory_depth))
+            .get(
+              resolveZone?.(previous.path) ??
+                directoryOf(previous.path, districts[0]?.directory_depth),
+            )
             ?.slots.get(slotKey(building.id, previous.path))
         : undefined;
     const past = history.slice(0, low);

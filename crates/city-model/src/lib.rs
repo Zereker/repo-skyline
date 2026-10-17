@@ -7,9 +7,23 @@ pub struct CityProject {
     pub repository: String,
     pub districts: Vec<District>,
     pub timeline: Vec<TimelineCommit>,
+    pub contributors: Vec<Contributor>,
     pub releases: Vec<ReleaseMarker>,
     pub milestones: Vec<StoryMilestone>,
     pub roads: Vec<CityRoad>,
+}
+
+/// One person. `mainline_commits` are replayed in the timeline; `merged_commits`
+/// were authored on side branches and entered through merge commits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Contributor {
+    pub id: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub mainline_commits: u32,
+    pub merged_commits: u32,
+    pub first_commit_at: i64,
+    pub last_commit_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,10 +212,32 @@ pub fn project_city(history: &RepositoryHistory) -> CityProject {
     let roads = derive_cochange_roads(history);
     let milestones = derive_milestones(history, &timeline);
 
+    let mut contributors: Vec<Contributor> = history
+        .authors
+        .iter()
+        .map(|author| Contributor {
+            id: author.id.clone(),
+            name: author.name.clone(),
+            email: author.email.clone(),
+            mainline_commits: author.commit_count,
+            merged_commits: author.merged_commits,
+            first_commit_at: author.first_commit_at,
+            last_commit_at: author.last_commit_at,
+        })
+        .collect();
+    contributors.sort_by(|a, b| {
+        let total_a = a.mainline_commits + a.merged_commits;
+        let total_b = b.mainline_commits + b.merged_commits;
+        total_b
+            .cmp(&total_a)
+            .then(a.mainline_commits.cmp(&b.mainline_commits))
+            .then(a.id.cmp(&b.id))
+    });
     CityProject {
         repository: history.repository.name.clone(),
         districts,
         timeline,
+        contributors,
         releases,
         milestones,
         roads,
@@ -265,14 +301,14 @@ fn derive_milestones(
         milestones.push(StoryMilestone {
             id: "first-commit".to_string(),
             kind: StoryMilestoneKind::FirstCommit,
-            title: "First commit".to_string(),
-            description: format!("The city foundation: {}", first.message),
+            title: "首次提交".to_string(),
+            description: format!("城市从这里奠基：{}", first.message),
             commit_id: first.id.clone(),
             timestamp: first.timestamp,
         });
     }
 
-    for (index, title) in [(99usize, "100th commit"), (999usize, "1000th commit")] {
+    for (index, title) in [(99usize, "第 100 次提交"), (999usize, "第 1000 次提交")] {
         if let Some(commit) = timeline.get(index) {
             milestones.push(StoryMilestone {
                 id: format!("commit-{}", index + 1),
@@ -282,7 +318,7 @@ fn derive_milestones(
                     StoryMilestoneKind::Commit1000
                 },
                 title: title.to_string(),
-                description: format!("The city reaches {} commits.", index + 1),
+                description: format!("城市达到 {} 次提交。", index + 1),
                 commit_id: commit.id.clone(),
                 timestamp: commit.timestamp,
             });
@@ -298,8 +334,8 @@ fn derive_milestones(
         milestones.push(StoryMilestone {
             id: "first-major-contributor".to_string(),
             kind: StoryMilestoneKind::FirstMajorContributor,
-            title: "Major builder emerges".to_string(),
-            description: format!("{} reaches three mainline commits.", commit.author_name),
+            title: "核心贡献者出现".to_string(),
+            description: format!("{} 完成第 3 次主线提交。", commit.author_name),
             commit_id: commit.id.clone(),
             timestamp: commit.timestamp,
         });
@@ -324,9 +360,9 @@ fn derive_milestones(
         milestones.push(StoryMilestone {
             id: "largest-change".to_string(),
             kind: StoryMilestoneKind::LargestChange,
-            title: "Biggest construction wave".to_string(),
+            title: "最大建设潮".to_string(),
             description: format!(
-                "{} files changed with {} line edits.",
+                "{} 个文件发生变更，共 {} 行改动。",
                 largest.changes.len(),
                 delta
             ),
@@ -354,9 +390,9 @@ fn derive_milestones(
         milestones.push(StoryMilestone {
             id: "largest-refactor".to_string(),
             kind: StoryMilestoneKind::LargestRefactor,
-            title: "Urban renewal".to_string(),
+            title: "城市更新".to_string(),
             description: format!(
-                "{} rename/delete events reshaped the city.",
+                "{} 次重命名或删除重塑了城市。",
                 refactor
                     .changes
                     .iter()
@@ -391,9 +427,9 @@ fn derive_milestones(
         milestones.push(StoryMilestone {
             id: "largest-module".to_string(),
             kind: StoryMilestoneKind::LargestModule,
-            title: "District expansion".to_string(),
+            title: "街区扩张".to_string(),
             description: format!(
-                "{} gained {} new buildings in one commit.",
+                "{} 在一次提交中新增 {} 栋建筑。",
                 directory, count
             ),
             commit_id: commit.id.clone(),
@@ -415,8 +451,8 @@ fn derive_milestones(
             milestones.push(StoryMilestone {
                 id: "most-active-month".to_string(),
                 kind: StoryMilestoneKind::MostActiveMonth,
-                title: "Busiest month".to_string(),
-                description: format!("{} commits landed during {}.", count, month),
+                title: "最活跃月份".to_string(),
+                description: format!("{} 期间共有 {} 次提交。", month, count),
                 commit_id: commit.id.clone(),
                 timestamp: commit.timestamp,
             });
@@ -440,9 +476,9 @@ fn derive_milestones(
                     transitions.push(StoryMilestone {
                         id: format!("ownership-{}-{}", snapshot.commit_id, file.id),
                         kind: StoryMilestoneKind::OwnershipTransition,
-                        title: "Ownership changes".to_string(),
+                        title: "归属交接".to_string(),
                         description: format!(
-                            "{}: cumulative additions leader changes from {} to {}.",
+                            "{}：累计新增行数领先者从 {} 变为 {}。",
                             snapshot.path, before, after
                         ),
                         commit_id: snapshot.commit_id.clone(),
@@ -466,8 +502,8 @@ fn derive_milestones(
         milestones.push(StoryMilestone {
             id: format!("release-{}", release.name),
             kind: StoryMilestoneKind::Release,
-            title: format!("Release {}", release.name),
-            description: "A Git tag marks a city milestone.".to_string(),
+            title: format!("版本 {}", release.name),
+            description: "Git 标签标记了城市的一个里程碑。".to_string(),
             commit_id: release.commit_id.clone(),
             timestamp: release.timestamp,
         });
@@ -591,6 +627,7 @@ mod tests {
                 name: "bob".into(),
                 email: None,
                 commit_count: 3,
+                merged_commits: 0,
                 first_commit_at: 97,
                 last_commit_at: 99,
             }],

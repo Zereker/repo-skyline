@@ -32,7 +32,7 @@ export default function PlaybackControls({
           else onPlayingChange(!playing);
         }}
       >
-        {playing ? "Pause" : "Play"}
+        {playing ? "暂停" : "播放"}
       </button>
       <button
         type="button"
@@ -40,17 +40,17 @@ export default function PlaybackControls({
         disabled={length < 2}
         onClick={replay}
       >
-        Replay
+        重播
       </button>
       <select
         className="speed-select"
         value={speed}
         onChange={(e) => onSpeedChange(Number(e.target.value))}
-        aria-label="Playback speed"
+        aria-label="播放速度"
       >
         {[0.5, 1, 2, 5].map((value) => (
           <option key={value} value={value}>
-            {value}x
+            {value} 倍
           </option>
         ))}
       </select>

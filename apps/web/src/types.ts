@@ -87,10 +87,21 @@ export type StoryMilestone = {
   timestamp: number;
 };
 
+export type Contributor = {
+  id: string;
+  name: string;
+  email?: string | null;
+  mainline_commits: number;
+  merged_commits: number;
+  first_commit_at: number;
+  last_commit_at: number;
+};
+
 export type CityProject = {
   repository: string;
   districts: District[];
   timeline: TimelineCommit[];
+  contributors?: Contributor[];
   releases: ReleaseMarker[];
   milestones: StoryMilestone[];
   roads?: CityRoad[];

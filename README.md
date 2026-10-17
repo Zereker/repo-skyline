@@ -148,6 +148,92 @@ Play and Story Mode are mutually exclusive. File details, ownership and analytic
 views reflect the selected commit rather than future totals. Large scenes use
 shared instanced geometry automatically. Fit city resets the camera.
 
+## Metropolis building language
+
+The default **Module roles + history** language gives source files business towers,
+tests research campuses, documentation civic halls, examples residential terraces,
+and infrastructure utility buildings. Roles are inferred from paths and extensions;
+unrecognized files remain unclassified. Facades, roof forms, materials and lighting
+vary deterministically within each family. Large scenes retain these families in
+instanced rendering.
+
+Height combines module role, LOC and **history prominence**. Prominence uses
+log-normalized file changes (45%), contributor counts (20%) and observed active
+co-change neighbours (35%), with minimum normalization scales of 10/3/3. All
+metrics reflect the selected commit; co-change evidence is limited to the retained
+road data. This is a historical attention signal, not a dependency or business
+importance score. Select a building and open **Why this building?** for its evidence.
+
+Use **Building language → LOC towers** for the LOC-only height mapping. Contributor
+and analytical views override the color channel while preserving building forms.
+
+## Navigating large cities
+
+- **District focus**: click a district in the left panel to isolate it. Other
+  districts fade, the camera fits the focused one, and a banner offers to restore
+  the whole city.
+- **File search**: type a path fragment in the left panel to list matching active
+  buildings (largest first) and the districts they live in. Selecting a result
+  flies the camera to that building and opens its inspector; while a query is
+  active, non-matching buildings are dimmed.
+
+Both interactions share one dimming channel, so detailed and instanced rendering
+stay consistent. Repositories with thousands of files remain navigable without
+clicking individual buildings.
+
+## Architecture field guide
+
+Open **Architecture blueprint** in the web app, or open
+`apps/web/public/guide.html` directly. This self-contained HTML file embeds its
+styles, SVG city map, source snapshot and interaction code, and works offline
+without a server.
+
+The web UI is in Chinese. The in-app blueprint is linked to the loaded city
+rather than being a separate page. By default the 3D city uses the blueprint plan: ten functional zones
+(entry, history harbor, projection works, contract plaza, import checkpoint,
+state control, layout district, identity studio, rendering quarter and replay
+station) plus a supporting-files zone. Each zone has its own ground tint and a
+named landmark. Building labels are generated from the repository itself (for
+example `types.ts`, `App.tsx`, or the `git-analyzer` crate), while the blueprint
+zone is shown as a secondary line. The shared contract landmark is the tallest
+planned building, and ordinary buildings are capped below their zone landmark. The settings panel can
+switch between this blueprint plan and the real directory layout. Repositories
+without enough blueprint matches fall back to real directories automatically. The app keeps its repository name, commit timeline and selection visible;
+the guide receives the current commit as context. Selecting a module reports its
+source paths back to the app, which counts matching buildings and can locate the
+first one with a camera flight. A selected building can conversely open the
+blueprint at its matching module. The embedded bridge uses `postMessage`; the
+standalone page remains available for offline reading and sharing.
+
+The engineering-drawing view maps ten real Repo Skyline module groups, explains
+their responsibilities and design boundaries, and provides a manually paced
+600-second onboarding route. The dependency layer distinguishes type-only and
+runtime imports. `types.ts` is the main tower, with 14 direct type consumers in
+the current 26-module production frontend snapshot. A source-graph check verifies the
+embedded import registry against the actual TypeScript source graph.
+
+## Contributor attribution
+
+Contributors are ranked by commit count and split into two kinds:
+
+- **mainline commits** are replayed on the timeline.
+- **merged commits** were authored on side branches and entered through merge
+  commits. They are counted, shown separately in the contributor panel, and never
+  replayed twice.
+
+Identities are resolved through `.mailmap` (both the `<proper> <commit>` and the
+named form), then by case-insensitive email, so one person is one contributor.
+Repositories that merge heavily show contributors the first-parent walk alone
+would have hidden entirely.
+
+## Generated code
+
+`*.gen.go`, `*.pb.go`, `*.min.js`, snapshots, lockfiles and vendored or build
+output directories are classified as generated code. They render as low uniform
+blocks and are capped well below hand-written code of the same size, so machine
+output no longer dominates the skyline. The classification is path-based, like
+the other module roles.
+
 ## Git history scope
 
 The analyzer follows HEAD's first-parent lineage. Merge diffs enter once, against
