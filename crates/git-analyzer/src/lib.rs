@@ -4,11 +4,131 @@ use repository_model::{
     FileSnapshot, ReleaseRecord, RepositoryHistory, RepositoryMeta,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap, HashSet},
     io::{BufRead, BufReader, Read, Write},
     path::Path,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
+
+/// One author identity: a canonical id plus the display name to show.
+struct Identity {
+    id: String,
+    name: String,
+}
+
+/// Resolves author identities through `.mailmap`, then case-insensitive email.
+/// Keeps one person as one contributor instead of one per spelling.
+struct IdentityResolver {
+    by_pair: HashMap<(String, String), Identity>,
+    by_email: HashMap<String, Identity>,
+    names: HashMap<String, BTreeMap<String, u32>>,
+}
+
+impl IdentityResolver {
+    fn load(path: &Path) -> Self {
+        let mut resolver = Self {
+            by_pair: HashMap::new(),
+            by_email: HashMap::new(),
+            names: HashMap::new(),
+        };
+        let Ok(content) = std::fs::read_to_string(path.join(".mailmap")) else {
+            return resolver;
+        };
+        for line in content.lines() {
+            let line = line.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            // Formats: "Proper <proper@x> <commit@x>" or "Proper <proper@x> Commit <commit@x>"
+            let open = match line.find('<') {
+                Some(index) => index,
+                None => continue,
+            };
+            let name = line[..open].trim();
+            let rest = &line[open..];
+            let (proper, commit) = match (
+                rest.find('<'),
+                rest.find('>'),
+                rest.rfind('<'),
+                rest.rfind('>'),
+            ) {
+                (Some(first), Some(first_end), Some(last), Some(last_end))
+                    if first < first_end && first_end < last && last < last_end =>
+                {
+                    (
+                        rest[first + 1..first_end].to_string(),
+                        rest[last + 1..last_end].to_string(),
+                    )
+                }
+                _ => continue,
+            };
+            if proper.is_empty() || commit.is_empty() {
+                continue;
+            }
+            let identity = Identity {
+                id: proper.to_lowercase(),
+                name: if name.is_empty() { proper.clone() } else { name.to_string() },
+            };
+            if name.is_empty() {
+                resolver.by_email.insert(commit.to_lowercase(), identity);
+            } else {
+                resolver
+                    .by_pair
+                    .insert((commit.to_lowercase(), name.to_lowercase()), identity);
+            }
+        }
+        resolver
+    }
+
+    fn resolve(&mut self, name: &str, email: &str) -> Identity {
+        let key = email.trim().to_lowercase();
+        if let Some(identity) = self.by_pair.get(&(key.clone(), name.trim().to_lowercase())) {
+            return Identity {
+                id: identity.id.clone(),
+                name: identity.name.clone(),
+            };
+        }
+        if let Some(identity) = self.by_email.get(&key) {
+            return Identity {
+                id: identity.id.clone(),
+                name: identity.name.clone(),
+            };
+        }
+        if !email.trim().is_empty() {
+            Identity {
+                id: key.clone(),
+                name: name.to_string(),
+            }
+        } else {
+            Identity {
+                id: format!("name:{name}"),
+                name: name.to_string(),
+            }
+        }
+    }
+
+    /// Picks the most frequent spelling, then the lexicographically first, so output is stable.
+    fn display_name(&self, id: &str) -> String {
+        self.names
+            .get(id)
+            .and_then(|counts| {
+                counts
+                    .iter()
+                    .max_by(|(a, count_a), (b, count_b)| count_a.cmp(count_b).then_with(|| b.cmp(a)))
+                    .map(|(name, _)| name.clone())
+            })
+            .unwrap_or_else(|| id.to_string())
+    }
+
+    fn record(&mut self, id: &str, name: &str) {
+        *self
+            .names
+            .entry(id.to_string())
+            .or_default()
+            .entry(name.to_string())
+            .or_default() += 1;
+    }
+}
 
 /// Replay HEAD's first-parent lineage. Side-branch work enters at the merge,
 /// whose diff is measured against its first parent, so no work is counted twice.
@@ -39,13 +159,16 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
     )?;
     let mut commits = Vec::new();
     let mut authors = BTreeMap::<String, AuthorRecord>::new();
+    let mut identities = IdentityResolver::load(path);
     let fields: Vec<_> = log.split('\0').collect();
     let mut blobs = BlobReader::new(path)?;
     for fields in fields.as_chunks::<6>().0 {
         let id = fields[0].trim().to_string();
         let parents: Vec<String> = fields[1].split_whitespace().map(str::to_owned).collect();
         let email = fields[2];
-        let author_id = if email.is_empty() { fields[3] } else { email }.to_string();
+        let identity = identities.resolve(fields[3], email);
+        let author_id = identity.id;
+        identities.record(&author_id, fields[3]);
         let timestamp = fields[4].parse::<i64>()?;
         let mut changes = read_changes(path, &id, parents.first().map(String::as_str))?;
         for change in &mut changes {
@@ -67,6 +190,7 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
                 name: fields[3].to_string(),
                 email: (!email.is_empty()).then(|| email.to_string()),
                 commit_count: 1,
+                merged_commits: 0,
                 first_commit_at: timestamp,
                 last_commit_at: timestamp,
             });
@@ -79,6 +203,48 @@ pub fn analyze_repository(path: impl AsRef<Path>) -> Result<RepositoryHistory> {
             message: fields[5].to_string(),
             changes,
         });
+    }
+    // Side-branch authors never appear in the first-parent walk. Their work entered
+    // through merge commits, so count them separately instead of dropping them.
+    let mainline: HashSet<&str> = commits.iter().map(|commit| commit.id.as_str()).collect();
+    let all = run_git(
+        path,
+        &[
+            "log",
+            "--topo-order",
+            "--reverse",
+            "--format=%H%x00%ae%x00%an%x00%at%x00",
+            &head,
+        ],
+    )?;
+    for fields in all.split('\0').collect::<Vec<_>>().as_chunks::<4>().0 {
+        let id = fields[0].trim();
+        if mainline.contains(id) {
+            continue;
+        }
+        let email = fields[1];
+        let identity = identities.resolve(fields[2], email);
+        identities.record(&identity.id, fields[2]);
+        let timestamp = fields[3].parse::<i64>()?;
+        authors
+            .entry(identity.id.clone())
+            .and_modify(|author| {
+                author.merged_commits += 1;
+                author.first_commit_at = author.first_commit_at.min(timestamp);
+                author.last_commit_at = author.last_commit_at.max(timestamp);
+            })
+            .or_insert(AuthorRecord {
+                id: identity.id.clone(),
+                name: fields[2].to_string(),
+                email: (!email.is_empty()).then(|| email.to_string()),
+                commit_count: 0,
+                merged_commits: 1,
+                first_commit_at: timestamp,
+                last_commit_at: timestamp,
+            });
+    }
+    for author in authors.values_mut() {
+        author.name = identities.display_name(&author.id);
     }
     let files = build_file_records(&commits);
     let mut releases = Vec::new();

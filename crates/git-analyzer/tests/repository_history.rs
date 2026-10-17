@@ -268,3 +268,68 @@ fn overwrite_respects_git_delete_and_modify_semantics() {
     assert_eq!(deleted.history[0].path, "a-source");
     assert_eq!(deleted.current_lines, 0);
 }
+
+#[test]
+fn counts_side_branch_authors_and_resolves_mailmap_identities() {
+    let temp = TempDir::new().expect("temp repo");
+    let repo = temp.path();
+
+    git(repo, &["init", "-b", "main"]);
+    git(repo, &["config", "user.name", "Repo Skyline Test"]);
+    git(repo, &["config", "user.email", "skyline@example.test"]);
+    git(repo, &["config", "commit.gpgsign", "false"]);
+
+    fs::write(repo.join("main.txt"), "main\n").expect("create main");
+    commit(repo, "main work");
+
+    // Side branch authored by someone who never commits on the first-parent lineage.
+    git(repo, &["checkout", "-b", "feature"]);
+    git(repo, &["config", "user.name", "Side Author"]);
+    git(repo, &["config", "user.email", "side@example.test"]);
+    fs::write(repo.join("feature.txt"), "feature\n").expect("create feature");
+    commit(repo, "side work");
+
+    git(repo, &["checkout", "main"]);
+    git(repo, &["config", "user.name", "Repo Skyline Test"]);
+    git(repo, &["config", "user.email", "skyline@example.test"]);
+    git(repo, &["merge", "--no-ff", "-m", "merge feature", "feature"]);
+
+    // The same person commits under a second address, mapped by .mailmap.
+    fs::write(
+        repo.join(".mailmap"),
+        "Canonical Person <canonical@example.test> <alias@example.test>\n",
+    )
+    .expect("write mailmap");
+    fs::write(repo.join("aliased.txt"), "aliased\n").expect("create aliased");
+    git(repo, &["config", "user.name", "Canonical Person"]);
+    git(repo, &["config", "user.email", "alias@example.test"]);
+    commit(repo, "aliased work");
+    git(repo, &["config", "user.name", "Canonical Person"]);
+    git(repo, &["config", "user.email", "canonical@example.test"]);
+    fs::write(repo.join("canonical.txt"), "canonical\n").expect("create canonical");
+    commit(repo, "canonical work");
+
+    let history = analyze_repository(repo).expect("history should parse");
+    let find = |id: &str| {
+        history
+            .authors
+            .iter()
+            .find(|author| author.id == id)
+            .unwrap_or_else(|| panic!("author {id} should exist"))
+    };
+
+    let main = find("skyline@example.test");
+    assert_eq!(main.commit_count, 2, "initial commit plus the merge commit");
+    assert_eq!(main.merged_commits, 0);
+
+    let side = find("side@example.test");
+    assert_eq!(side.commit_count, 0, "side-branch work is not on the lineage");
+    assert_eq!(side.merged_commits, 1);
+    assert_eq!(side.name, "Side Author");
+
+    // Both addresses collapse into one canonical contributor.
+    let canonical = find("canonical@example.test");
+    assert_eq!(canonical.commit_count, 2);
+    assert_eq!(canonical.name, "Canonical Person");
+    assert_eq!(history.authors.len(), 3);
+}
