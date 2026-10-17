@@ -8,20 +8,51 @@ import {
   type PlacedBuilding,
 } from "./cityLayout";
 import type { CityEventKind, ViewMode } from "./types";
+import {
+  buildingHeight,
+  roofGeometries,
+  towerGeometries,
+} from "./buildingVisuals";
+import type { UrbanAppearance } from "./urbanIdentity";
+import FacadeMaterial from "./FacadeMaterial";
+
 type Props = {
   buildings: PlacedBuilding[];
+  appearances: Map<string, UrbanAppearance>;
   changes: Map<string, CityEventKind>;
+  focusDistrict?: string | null;
+  isDimmed?: (building: PlacedBuilding) => boolean;
   commitId?: string;
   viewMode: ViewMode;
   selectedId?: string;
   onSelect: (b: PlacedBuilding) => void;
   onHover: (b: PlacedBuilding | null) => void;
 };
-const heightOf = (lines: number) =>
-  Math.max(0.7, Math.min(11, Math.log2(lines + 1) * 0.9));
-/** Compact shared geometry keeps large repositories interactive. */
-export default function InstancedBuildings({
+
+/** Batch by architectural family, retaining module differences in large cities. */
+export default function InstancedBuildings(props: Props) {
+  const groups = useMemo(() => {
+    const map = new Map<string, PlacedBuilding[]>();
+    for (const building of props.buildings) {
+      const appearance = props.appearances.get(building.id)!;
+      const key = `${appearance.role}:${appearance.style}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(building);
+    }
+    return [...map];
+  }, [props.buildings, props.appearances]);
+  return (
+    <>
+      {groups.map(([key, buildings]) => (
+        <BuildingBatch key={key} {...props} buildings={buildings} />
+      ))}
+    </>
+  );
+}
+
+function BuildingBatch({
   buildings,
+  appearances,
   changes,
   commitId,
   viewMode,
@@ -30,31 +61,42 @@ export default function InstancedBuildings({
   onHover,
 }: Props) {
   const ref = useRef<InstancedMesh>(null);
+  const roofRef = useRef<InstancedMesh>(null);
   const elapsed = useRef(0);
   const object = useMemo(() => new Object3D(), []);
   const color = useMemo(() => new Color(), []);
+  const eventColor = useMemo(() => new Color(), []);
+  const dimColor = useMemo(() => new Color("#0d1a2b"), []);
+  const family = appearances.get(buildings[0].id)!;
+  const roof = roofGeometries[family.style];
   const targets = useMemo(
     () =>
       buildings.map((b) => {
+        const appearance = appearances.get(b.id)!;
         const kind = changes.get(b.path);
         const index =
           b.history?.findIndex((s) => s.commit_id === commitId) ?? -1;
-        const previous = index > 0 ? b.history![index - 1].lines : 0;
+        const previous = index > 0 ? b.history![index - 1].lines : b.lines;
         const normal =
           b.analysis_color ??
           (viewMode === "territory"
             ? colorForContributor(b.primary_author)
             : viewMode === "activity"
               ? colorForActivity(b.recent_activity)
-              : colorForDistrict(b.district));
+              : appearance.language === "modules"
+                ? appearance.color
+                : colorForDistrict(b.district));
         return {
           b,
+          appearance,
           kind,
-          height: heightOf(b.lines),
-          previous: heightOf(previous),
-          color:
+          previous:
+            (buildingHeight(previous) * appearance.height) /
+            buildingHeight(b.lines),
+          color: b.id === selectedId ? "#ffffff" : normal,
+          pulse:
             b.id === selectedId
-              ? "#ffffff"
+              ? null
               : kind === "added"
                 ? "#7ee787"
                 : kind === "modified"
@@ -63,66 +105,109 @@ export default function InstancedBuildings({
                     ? "#ff6b6b"
                     : kind === "renamed"
                       ? "#c084fc"
-                      : normal,
+                      : null,
         };
       }),
-    [buildings, changes, commitId, viewMode, selectedId],
+    [buildings, appearances, changes, commitId, viewMode, selectedId],
   );
   useEffect(() => {
     elapsed.current = 0;
-    if (ref.current) {
-      ref.current.instanceMatrix.setUsage(DynamicDrawUsage);
-    }
+    ref.current?.instanceMatrix.setUsage(DynamicDrawUsage);
+    roofRef.current?.instanceMatrix.setUsage(DynamicDrawUsage);
   }, [commitId]);
   useFrame((_, delta) => {
     const mesh = ref.current;
     if (!mesh) return;
     elapsed.current = Math.min(1, elapsed.current + delta * 2.4);
     const t = 1 - Math.pow(1 - elapsed.current, 3);
-    targets.forEach(({ b, kind, height, previous, color: shade }, i) => {
-      const h =
-        kind === "added"
-          ? height * t
-          : kind === "deleted"
-            ? height * (1 - t)
-            : kind === "modified"
-              ? previous + (height - previous) * t
-              : height;
-      object.position.set(
-        (b.from_x ?? b.x) + (b.x - (b.from_x ?? b.x)) * t,
-        Math.max(0.002, h) / 2,
-        (b.from_z ?? b.z) + (b.z - (b.from_z ?? b.z)) * t,
-      );
-      object.scale.set(1.4, Math.max(0.002, h), 1.4);
-      object.updateMatrix();
-      mesh.setMatrixAt(i, object.matrix);
-      mesh.setColorAt(i, color.set(shade));
-    });
+    targets.forEach(
+      ({ b, appearance, kind, previous, color: shade, pulse }, i) => {
+        const height = appearance.height;
+        const h =
+          kind === "added"
+            ? height * t
+            : kind === "deleted"
+              ? height * (1 - t)
+              : kind === "modified"
+                ? previous + (height - previous) * t
+                : height;
+        object.position.set(
+          (b.from_x ?? b.x) + (b.x - (b.from_x ?? b.x)) * t,
+          0.1,
+          (b.from_z ?? b.z) + (b.z - (b.from_z ?? b.z)) * t,
+        );
+        object.scale.set(
+          appearance.width,
+          Math.max(0.002, h),
+          appearance.width,
+        );
+        object.updateMatrix();
+        mesh.setMatrixAt(i, object.matrix);
+        color.set(shade);
+        if (pulse) color.lerp(eventColor.set(pulse), 1 - t);
+        mesh.setColorAt(i, color);
+        roofRef.current?.setMatrixAt(i, object.matrix);
+        roofRef.current?.setColorAt(i, color.set(appearance.roof));
+      },
+    );
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (roofRef.current) {
+      roofRef.current.instanceMatrix.needsUpdate = true;
+      if (roofRef.current.instanceColor)
+        roofRef.current.instanceColor.needsUpdate = true;
+    }
   });
   return (
-    <instancedMesh
-      ref={ref}
-      args={[undefined, undefined, buildings.length]}
-      frustumCulled={false}
-      castShadow
-      onClick={(event) => {
-        if (event.instanceId != null) {
-          event.stopPropagation();
-          onSelect(buildings[event.instanceId]);
-        }
-      }}
-      onPointerMove={(event) => {
-        if (event.instanceId != null) {
-          event.stopPropagation();
-          onHover(buildings[event.instanceId]);
-        }
-      }}
-      onPointerOut={() => onHover(null)}
-    >
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial roughness={0.7} />
-    </instancedMesh>
+    <group>
+      <instancedMesh
+        ref={ref}
+        args={[towerGeometries[family.style], undefined, buildings.length]}
+        dispose={null}
+        frustumCulled={false}
+        onClick={(event) => {
+          if (event.instanceId != null) {
+            event.stopPropagation();
+            onSelect(buildings[event.instanceId]);
+          }
+        }}
+        onPointerMove={(event) => {
+          if (event.instanceId != null) {
+            event.stopPropagation();
+            onHover(buildings[event.instanceId]);
+          }
+        }}
+        onPointerOut={() => onHover(null)}
+      >
+        <FacadeMaterial color="#ffffff" appearance={family} />
+      </instancedMesh>
+      {roof && (
+        <instancedMesh
+          ref={roofRef}
+          args={[roof, undefined, buildings.length]}
+          dispose={null}
+          frustumCulled={false}
+          onClick={(event) => {
+            if (event.instanceId != null) {
+              event.stopPropagation();
+              onSelect(buildings[event.instanceId]);
+            }
+          }}
+          onPointerMove={(event) => {
+            if (event.instanceId != null) {
+              event.stopPropagation();
+              onHover(buildings[event.instanceId]);
+            }
+          }}
+          onPointerOut={() => onHover(null)}
+        >
+          <meshStandardMaterial
+            color="#ffffff"
+            metalness={family.metalness * 0.5}
+            roughness={Math.max(0.4, family.roughness)}
+          />
+        </instancedMesh>
+      )}
+    </group>
   );
 }

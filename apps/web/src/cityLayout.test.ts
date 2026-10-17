@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { activeDistrictsAt, layoutCity } from "./cityLayout";
+import { Color } from "three";
+import {
+  activeDistrictsAt,
+  colorForActivity,
+  colorForContributor,
+  colorForDistrict,
+  layoutCity,
+} from "./cityLayout";
 import { parseCity } from "./importCity";
 import { evidenceAt } from "./analysis";
+import { buildingFootprint } from "./buildingScale";
 import type { CityProject, FileSnapshot } from "./types";
 function project(): CityProject {
   const timestamps = [100, 200, 300, 400, 500];
@@ -124,6 +132,48 @@ describe("history replay", () => {
     const [left, right] = layoutCity(city);
     expect(left.x + left.width / 2).toBeLessThan(right.x - right.width / 2);
   });
+  it("reserves enough space for differently sized towers across packed districts", () => {
+    const city = project();
+    const original = city.districts[0].buildings[0];
+    city.districts = Array.from({ length: 5 }, (_, district) => ({
+      path: `district-${district}`,
+      buildings: Array.from({ length: 17 }, (_, i) => ({
+        ...original,
+        id: `${district}-${i}`,
+        path: `district-${district}/file-${i}`,
+        lines: 10 ** (i % 6),
+        history: [],
+      })),
+    }));
+    const districts = layoutCity(city);
+    const buildings = districts.flatMap((d) => d.buildings);
+    for (const district of districts) {
+      for (const building of district.buildings) {
+        const half = (buildingFootprint(building.lines) * 1.15) / 2;
+        expect(building.x - half).toBeGreaterThan(
+          district.x - district.width / 2,
+        );
+        expect(building.x + half).toBeLessThan(district.x + district.width / 2);
+        expect(building.z - half).toBeGreaterThan(
+          district.z - district.depth / 2,
+        );
+        expect(building.z + half).toBeLessThan(district.z + district.depth / 2);
+      }
+    }
+    for (let i = 0; i < buildings.length; i++) {
+      for (const other of buildings.slice(i + 1)) {
+        const a = buildings[i];
+        const separation =
+          ((buildingFootprint(a.lines) + buildingFootprint(other.lines)) *
+            1.15) /
+          2;
+        expect(
+          Math.abs(a.x - other.x) >= separation ||
+            Math.abs(a.z - other.z) >= separation,
+        ).toBe(true);
+      }
+    }
+  });
 });
 describe("city import", () => {
   it("accepts generated data and fills optional collections", () => {
@@ -142,5 +192,22 @@ describe("city import", () => {
     const dup = project();
     dup.districts[0].buildings.push(dup.districts[0].buildings[0]);
     expect(() => parseCity(dup)).toThrow();
+  });
+});
+
+describe("rendering colors", () => {
+  it("supplies colors Three.js can parse rather than silently rendering white", () => {
+    const colors = [
+      colorForContributor("alice"),
+      colorForContributor("bob"),
+      colorForDistrict("src"),
+      colorForDistrict("tests"),
+      colorForActivity(0),
+      colorForActivity(7),
+    ].map((style) => new Color(style).getHex());
+    for (const color of colors) expect(color).not.toBe(0xffffff);
+    expect(colors[0]).not.toBe(colors[1]);
+    expect(colors[2]).not.toBe(colors[3]);
+    expect(colors[4]).not.toBe(colors[5]);
   });
 });

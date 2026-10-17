@@ -69,13 +69,13 @@ export function evidenceAt(
 }
 export const analysisDescriptions: Partial<Record<ViewMode, string>> = {
   ghost:
-    "Files unchanged for the chosen number of days at this commit. Inactivity alone does not mean abandonment.",
-  risk: "Technical debt indicators: cumulative line edits / current LOC, plus contributor count. These are review signals, not a debt diagnosis.",
-  bugs: "Bug Crime Scene: commits mentioning fix, bug, regression, revert or hotfix. The message is evidence, not proof of a defect.",
+    "在本次提交时，已超过所选天数没有变更的文件。长期不修改不代表文件已被废弃。",
+  risk: "技术债指标：累计改动行数 / 当前行数，以及贡献者数量。这些只是审查信号，不是技术债诊断结论。",
+  bugs: "缺陷现场：提交信息中出现 fix、bug、regression、revert 或 hotfix 的提交。提交信息是证据，不代表已确认的缺陷。",
   architecture:
-    "Architecture Drift: cross-directory renames and repeated co-change links. Co-change is not an AST dependency.",
+    "架构漂移：跨目录重命名，以及反复出现的共同修改关系。共改不等于 AST 依赖。",
   provenance:
-    "AI vs Human: only explicit [ai-assisted] / [human-authored] or AI-assisted: / Human-authored: commit labels. Unmarked work stays unknown.",
+    "AI 与人工：只识别明确的 [ai-assisted] / [human-authored] 或 AI-assisted: / Human-authored: 标记。未标记的工作保持未知。",
 };
 export function evidenceScore(e: Evidence, view: ViewMode, ghostDays: number) {
   if (view === "ghost") return e.age >= ghostDays ? e.age : 0;
